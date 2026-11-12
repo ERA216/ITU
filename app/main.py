@@ -28,7 +28,14 @@ STATUS_TEXT = {
     "under_review": "На рассмотрении у сотрудника банка",
     "unblocked": "Ограничения сняты",
     "kept": "Ограничения оставлены",
+    "returned": "Деньги возвращены отправителю",
+    "released": "Перевод разрешён",
+    "cancelled": "Перевод отменён",
 }
+
+
+# Те же статусы словами для сотрудника банка.
+ANALYST_STATUS = {"open": "Апелляция не подана", "under_review": "Ждёт решения"}
 
 
 class TransferIn(BaseModel):
@@ -45,6 +52,11 @@ class DocumentIn(BaseModel):
 
 class AppealIn(BaseModel):
     explanation: str
+
+
+class DecisionIn(BaseModel):
+    decision: str   # approve | reject
+    comment: str = ""
 
 
 def _now() -> datetime:
@@ -206,6 +218,7 @@ def _case_view(case) -> dict:
                     "до выяснения."),
         "reasons": json.loads(case["reasons"]),
         "explanation": case["explanation"],
+        "decision_comment": case["decision_comment"],
         "required": [{"kind": k, **v, "uploaded": k in have} for k, v in DOC_KINDS.items()],
         "documents": [dict(d) for d in docs],
         "can_submit": case["status"] == "open",
@@ -266,3 +279,104 @@ def submit_appeal(case_id: int, body: AppealIn):
     conn.execute("UPDATE cases SET status='under_review', explanation=? WHERE id=?", (text[:2000], case_id))
     conn.commit()
     return _case_view(_block_case(case_id))
+
+
+# ---------- Панель аналитика ----------
+
+@app.get("/analyst", include_in_schema=False)
+def analyst_app():
+    return FileResponse(os.path.join(STATIC, "analyst.html"))
+
+
+def _transfer_view(tid: int) -> dict:
+    t = conn.execute(
+        """SELECT t.id, t.amount, t.created_at, t.status, s.name AS sender, r.name AS receiver,
+                  r.account_opened_at AS receiver_opened
+           FROM transfers t JOIN clients s ON s.id=t.sender_id JOIN clients r ON r.id=t.receiver_id
+           WHERE t.id=?""", (tid,)).fetchone()
+    return dict(t)
+
+
+def _analyst_row(case) -> dict:
+    client = _client(case["client_id"])
+    role = engine.assess_role(conn, case["client_id"], case, _now())
+    return {
+        "case_id": case["id"], "kind": case["kind"], "status": case["status"],
+        "status_text": ANALYST_STATUS.get(case["status"], STATUS_TEXT.get(case["status"], case["status"])),
+        "client_id": client["id"], "client": client["name"], "score": case["score"],
+        "created_at": case["created_at"], "role": role,
+        "needs_decision": case["status"] == "under_review" or (case["kind"] == "block" and case["status"] == "open"),
+    }
+
+
+@app.get("/analyst/cases")
+def analyst_queue():
+    """Очередь: сначала случаи, которые ждут решения."""
+    rows = [_analyst_row(c) for c in conn.execute("SELECT * FROM cases ORDER BY created_at DESC")]
+    order = {"under_review": 0, "open": 1}
+    return sorted(rows, key=lambda r: (not r["needs_decision"], order.get(r["status"], 2)))
+
+
+@app.get("/analyst/cases/{case_id}")
+def analyst_case(case_id: int):
+    """Карточка случая: цепочка переводов, признаки, подсказка о роли клиента, апелляция."""
+    case = conn.execute("SELECT * FROM cases WHERE id=?", (case_id,)).fetchone()
+    if not case:
+        raise HTTPException(404, "Случай не найден")
+    client = _client(case["client_id"])
+    docs = conn.execute("SELECT id, kind, filename, size, uploaded_at FROM documents WHERE case_id=? ORDER BY id",
+                        (case_id,)).fetchall()
+    return _analyst_row(case) | {
+        "account_opened_at": client["account_opened_at"],
+        "client_status": client["status"],
+        "incoming": _transfer_view(case["incoming_transfer_id"]),
+        "outgoing": _transfer_view(case["transfer_id"]),
+        "reasons": json.loads(case["reasons"]),
+        "explanation": case["explanation"],
+        "documents": [dict(d) | {"title": DOC_KINDS.get(d["kind"], {}).get("title", d["kind"])} for d in docs],
+        "decision_comment": case["decision_comment"],
+        "decided_at": case["decided_at"],
+    }
+
+
+@app.get("/documents/{doc_id}")
+def get_document(doc_id: int):
+    doc = conn.execute("SELECT * FROM documents WHERE id=?", (doc_id,)).fetchone()
+    if not doc or not doc["path"] or not os.path.exists(doc["path"]):
+        raise HTTPException(404, "Документ не найден")
+    return FileResponse(doc["path"], filename=doc["filename"])
+
+
+@app.post("/analyst/cases/{case_id}/decision")
+def decide(case_id: int, body: DecisionIn):
+    """Решение аналитика. Блокировка: снять или оставить. Перевод на паузе: разрешить или отменить."""
+    case = conn.execute("SELECT * FROM cases WHERE id=?", (case_id,)).fetchone()
+    if not case:
+        raise HTTPException(404, "Случай не найден")
+    if body.decision not in ("approve", "reject"):
+        raise HTTPException(400, "Решение должно быть approve или reject")
+    pending = case["status"] == "under_review" or (case["kind"] == "block" and case["status"] == "open")
+    if not pending:
+        raise HTTPException(409, "По этому случаю решение уже принято")
+    comment = body.comment.strip()[:1000]
+    if body.decision == "reject" and len(comment) < 10:
+        raise HTTPException(400, "При отказе напишите клиенту причину")
+    if case["kind"] == "block":
+        status = "unblocked" if body.decision == "approve" else "kept"
+        if status == "unblocked":
+            conn.execute("UPDATE clients SET status='active' WHERE id=?", (case["client_id"],))
+    else:
+        tr = conn.execute("SELECT * FROM transfers WHERE id=?", (case["transfer_id"],)).fetchone()
+        if body.decision == "approve":
+            if _client(tr["sender_id"])["balance"] < tr["amount"]:
+                raise HTTPException(400, "У клиента уже недостаточно средств для этого перевода")
+            conn.execute("UPDATE transfers SET status='done' WHERE id=?", (tr["id"],))
+            _move(tr["sender_id"], tr["receiver_id"], tr["amount"])
+            status = "released"
+        else:
+            conn.execute("UPDATE transfers SET status='cancelled' WHERE id=?", (tr["id"],))
+            status = "cancelled"
+    conn.execute("UPDATE cases SET status=?, decision_comment=?, decided_at=? WHERE id=?",
+                 (status, comment or None, _now().isoformat(), case_id))
+    conn.commit()
+    return analyst_case(case_id)
