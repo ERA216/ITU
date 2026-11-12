@@ -41,6 +41,17 @@ def _stranger_incomings(conn, client_id: int, now: datetime):
             if not _had_contact(conn, client_id, r["sender_id"], r["created_at"], r["id"])]
 
 
+def _forwarded_to_new(conn, client_id: int, incoming) -> int:
+    """Сколько денег после входящего ушло получателям, с которыми до него не было переводов."""
+    rows = conn.execute(
+        """SELECT receiver_id, amount FROM transfers
+           WHERE sender_id=? AND status='done' AND return_of IS NULL
+             AND created_at > ? AND receiver_id != ?""",
+        (client_id, incoming["created_at"], incoming["sender_id"])).fetchall()
+    return sum(r["amount"] for r in rows
+               if not _had_contact(conn, client_id, r["receiver_id"], incoming["created_at"]))
+
+
 def evaluate(conn, sender_id: int, receiver_id: int, amount: int, now: datetime) -> dict:
     """Оценивает исходящий перевод до его проведения."""
     reasons: list[dict] = []
@@ -67,6 +78,13 @@ def evaluate(conn, sender_id: int, receiver_id: int, amount: int, now: datetime)
             "Деньги уходят не тому, кто их прислал, а третьему лицу")
         if 0.8 * incoming["amount"] <= amount <= 1.02 * incoming["amount"]:
             add("amount_match", 30, "Сумма почти совпадает с полученной от незнакомца")
+        elif not _had_contact(conn, sender_id, receiver_id, incoming["created_at"]):
+            # Дробление: считаем всё, что после этого входящего уже ушло новым получателям.
+            sent = _forwarded_to_new(conn, sender_id, incoming)
+            # Срабатывает на той части, которая добирает сумму; если деньги уже ушли раньше, молчит.
+            if 0 < sent < 0.8 * incoming["amount"] <= sent + amount <= 1.1 * incoming["amount"]:
+                add("split_forward", 30,
+                    "Вместе с прошлыми переводами новым получателям уходит почти вся сумма от незнакомца")
         gap = now - _dt(incoming["created_at"])
         if gap <= timedelta(hours=2):
             add("fast_forward", 15, "Перевод отправляется меньше чем через 2 часа после получения")
