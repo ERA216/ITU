@@ -45,11 +45,23 @@
   .grid2 { display:grid; grid-template-columns:1fr 1fr; gap:12px; }
   @media (max-width:760px) { .grid2 { grid-template-columns:1fr; } }
   a { color:var(--brand); }
+  .login { max-width:360px; margin:40px auto; }
+  .login input { width:100%; padding:10px 12px; border:1px solid var(--line); border-radius:10px; font:inherit; margin-top:4px; }
+  .hbtn { border:1px solid var(--line); background:#fff; border-radius:8px; padding:5px 10px; font:inherit; font-size:13px; cursor:pointer; color:var(--muted); }
+  [hidden] { display:none !important; }
 </style>
 </head>
 <body>
-<header><b>Чистый счёт · панель аналитика</b><a href="/">Экран клиента</a></header>
-<div class="wrap">
+<header><b>Чистый счёт · панель аналитика</b>
+  <span><button class="hbtn" id="reset" hidden>Сбросить демо</button> <button class="hbtn" id="logout" hidden>Выйти</button> <a href="/">Экран клиента</a></span></header>
+<form class="card login" id="login" hidden>
+  <h2>Вход для сотрудника банка</h2>
+  <label for="pin" class="muted">Код доступа</label>
+  <input id="pin" type="password" inputmode="numeric" autocomplete="off" required>
+  <button class="act approve" style="margin-top:10px">Войти</button>
+  <div id="loginErr"></div>
+</form>
+<div class="wrap" id="wrap" hidden>
   <div><h2 id="queueTitle">Очередь</h2><div id="queue"></div></div>
   <div id="detail"><div class="card muted">Выберите случай слева.</div></div>
 </div>
@@ -64,7 +76,8 @@ let current = null;
 async function api(path, body) {
   const r = await fetch(path, body ? {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)} : {});
   const data = await r.json().catch(() => ({}));
-  if (!r.ok) throw new Error(data.detail || 'Ошибка запроса');
+  if (r.status === 401) showLogin();
+  if (!r.ok) throw new Error(typeof data.detail === 'string' ? data.detail : 'Ошибка запроса');
   return data;
 }
 function gap(a, b) {
@@ -134,7 +147,22 @@ async function open(id) {
   };
   loadQueue();
 }
-loadQueue();
+
+function showLogin() { $('login').hidden = false; for (const id of ['wrap', 'reset', 'logout']) $(id).hidden = true; }
+function showPanel() { $('login').hidden = true; for (const id of ['wrap', 'reset', 'logout']) $(id).hidden = false; loadQueue(); }
+$('login').onsubmit = async e => {
+  e.preventDefault();
+  const r = await fetch('/login', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({role:'analyst', pin:$('pin').value})});
+  if (r.ok) { $('pin').value = ''; $('loginErr').innerHTML = ''; showPanel(); }
+  else $('loginErr').innerHTML = `<div class="note">${esc((await r.json().catch(() => ({}))).detail || 'Не удалось войти')}</div>`;
+};
+$('logout').onclick = async () => { await fetch('/logout?role=analyst', {method:'POST'}); showLogin(); };
+$('reset').onclick = async () => {
+  $('reset').disabled = true;
+  try { await api('/demo/reset', {}); current = null; $('detail').innerHTML = '<div class="card muted">Демо-данные возвращены в исходное состояние.</div>'; await loadQueue(); }
+  finally { $('reset').disabled = false; }
+};
+fetch('/me').then(r => r.ok ? r.json() : null).then(s => s && s.analyst ? showPanel() : showLogin());
 </script>
 </body>
 </html>
