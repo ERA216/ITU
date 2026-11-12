@@ -34,6 +34,7 @@ CREATE TABLE IF NOT EXISTS cases (
     score INTEGER NOT NULL,
     reasons TEXT NOT NULL,              -- JSON-список сработавших признаков
     status TEXT NOT NULL DEFAULT 'open',-- open | returned | under_review | unblocked | kept
+    explanation TEXT,                   -- объяснение клиента при апелляции
     created_at TEXT NOT NULL
 );
 CREATE TABLE IF NOT EXISTS documents (
@@ -41,6 +42,8 @@ CREATE TABLE IF NOT EXISTS documents (
     case_id INTEGER NOT NULL REFERENCES cases(id),
     kind TEXT NOT NULL,
     filename TEXT NOT NULL,
+    path TEXT,
+    size INTEGER NOT NULL DEFAULT 0,
     uploaded_at TEXT NOT NULL
 );
 """
