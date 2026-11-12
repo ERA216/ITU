@@ -2,7 +2,9 @@ import os
 import tempfile
 from datetime import datetime, timedelta
 
-os.environ["CA_DB"] = os.path.join(tempfile.mkdtemp(), "test.db")
+_tmp = tempfile.mkdtemp()
+os.environ["CA_DB"] = os.path.join(_tmp, "test.db")
+os.environ["CA_UPLOADS"] = os.path.join(_tmp, "uploads")
 
 from fastapi.testclient import TestClient  # noqa: E402
 
@@ -52,3 +54,30 @@ def test_return_to_same_sender_is_never_held():
     c.execute("INSERT INTO transfers(sender_id,receiver_id,amount,created_at) VALUES(2,1,90000,?)",
               ((now - timedelta(minutes=30)).isoformat(),))
     assert engine.evaluate(c, 1, 2, 90000, now)["decision"] == "allow"
+
+
+SELLER = 1005
+
+
+def test_blocked_client_sees_reason_and_appeals():
+    import base64
+    # Заблокированный клиент не может переводить.
+    assert api.post("/transfers", json={"sender_id": SELLER, "receiver_id": MOM, "amount": 1000}).status_code == 403
+    case = api.get(f"/clients/{SELLER}/case").json()
+    assert case["status"] == "open" and "200 000 ₸" in case["summary"] and "40 мин" in case["summary"]
+    cid = case["case_id"]
+    # Без документа и внятного объяснения апелляция не принимается.
+    assert api.post(f"/cases/{cid}/submit", json={"explanation": "не я"}).status_code == 400
+    long_text = "Покупатель оплатил товар и попросил вернуть деньги на другую карту."
+    assert api.post(f"/cases/{cid}/submit", json={"explanation": long_text}).status_code == 400
+    doc = {"kind": "chat", "filename": "../чат.png", "content_base64": base64.b64encode(b"png-bytes").decode()}
+    up = api.post(f"/cases/{cid}/documents", json=doc).json()
+    assert up["size"] == 9 and "/" not in up["filename"]
+    done = api.post(f"/cases/{cid}/submit", json={"explanation": long_text}).json()
+    assert done["status"] == "under_review" and done["can_submit"] is False
+    # После отправки менять апелляцию нельзя.
+    assert api.post(f"/cases/{cid}/documents", json=doc).status_code == 409
+
+
+def test_client_without_block_has_no_case():
+    assert api.get(f"/clients/{MOM}/case").status_code == 404
