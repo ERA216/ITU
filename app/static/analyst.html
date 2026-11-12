@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Чистый счёт: панель аналитика</title>
+<style>
+  :root { --bg:#f3f5f4; --card:#fff; --ink:#14201b; --muted:#66736d; --line:#e2e7e4;
+          --brand:#0b6b4f; --warn:#b3261e; --warn-bg:#fdecea; --ok:#0b6b4f; --ok-bg:#e6f4ee; --amber:#7a5200; --amber-bg:#fff4d6; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--ink);
+         font:15px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  header { display:flex; justify-content:space-between; align-items:center; gap:12px; padding:14px 16px; background:#fff; border-bottom:1px solid var(--line); }
+  header b { color:var(--brand); font-size:17px; }
+  header a { color:var(--muted); font-size:14px; }
+  .wrap { display:grid; grid-template-columns:320px 1fr; gap:16px; padding:16px; max-width:1180px; margin:0 auto; }
+  @media (max-width:760px) { .wrap { grid-template-columns:1fr; } }
+  h2 { font-size:15px; margin:0 0 8px; }
+  .card { background:var(--card); border-radius:14px; padding:16px; margin-bottom:12px; }
+  .item { display:block; width:100%; text-align:left; background:#fff; border:1px solid var(--line); border-radius:12px;
+          padding:10px 12px; margin-bottom:8px; cursor:pointer; font:inherit; color:inherit; }
+  .item.sel { border-color:var(--brand); box-shadow:0 0 0 1px var(--brand); }
+  .item b { display:block; }
+  .muted { color:var(--muted); font-size:13px; }
+  .pill { display:inline-block; font-size:12px; font-weight:600; padding:2px 9px; border-radius:99px; background:var(--line); color:var(--muted); }
+  .pill.unwitting { background:var(--ok-bg); color:var(--ok); }
+  .pill.organizer { background:var(--warn-bg); color:var(--warn); }
+  .pill.unclear, .pill.wait { background:var(--amber-bg); color:var(--amber); }
+  .chain { display:flex; flex-wrap:wrap; align-items:center; gap:8px; }
+  .node { border:1px solid var(--line); border-radius:10px; padding:8px 10px; min-width:0; }
+  .node b { display:block; overflow-wrap:anywhere; }
+  .arrow { text-align:center; font-size:13px; color:var(--muted); font-variant-numeric:tabular-nums; }
+  .arrow strong { display:block; color:var(--ink); font-size:14px; }
+  ul { margin:6px 0; padding-left:0; list-style:none; }
+  li { display:flex; gap:10px; padding:5px 0; border-top:1px solid var(--line); }
+  li:first-child { border-top:0; }
+  .pts { flex:0 0 38px; font-weight:700; font-variant-numeric:tabular-nums; text-align:right; }
+  .plus { color:var(--ok); } .minus { color:var(--warn); }
+  blockquote { margin:6px 0; padding:10px 12px; background:var(--bg); border-radius:10px; overflow-wrap:anywhere; }
+  textarea { width:100%; min-height:70px; padding:10px 12px; border:1px solid var(--line); border-radius:10px; font:inherit; resize:vertical; }
+  .actions { display:flex; gap:10px; flex-wrap:wrap; margin-top:10px; }
+  button.act { border:0; border-radius:10px; padding:11px 16px; font:inherit; font-weight:600; cursor:pointer; flex:1 1 180px; }
+  .approve { background:var(--brand); color:#fff; } .reject { background:var(--warn-bg); color:var(--warn); }
+  .note { border-radius:10px; padding:10px 12px; margin-top:10px; background:var(--warn-bg); color:var(--warn); }
+  .grid2 { display:grid; grid-template-columns:1fr 1fr; gap:12px; }
+  @media (max-width:760px) { .grid2 { grid-template-columns:1fr; } }
+  a { color:var(--brand); }
+</style>
+</head>
+<body>
+<header><b>Чистый счёт · панель аналитика</b><a href="/">Экран клиента</a></header>
+<div class="wrap">
+  <div><h2 id="queueTitle">Очередь</h2><div id="queue"></div></div>
+  <div id="detail"><div class="card muted">Выберите случай слева.</div></div>
+</div>
+<script>
+const $ = id => document.getElementById(id);
+const esc = s => String(s ?? '').replace(/[&<>"]/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[ch]));
+const money = n => Number(n).toLocaleString('ru-RU') + ' ₸';
+const when = s => s.replace('T', ' ').slice(0, 16);
+const KIND = {block: 'Блокировка счёта', intercept: 'Перевод на паузе'};
+let current = null;
+
+async function api(path, body) {
+  const r = await fetch(path, body ? {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)} : {});
+  const data = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(data.detail || 'Ошибка запроса');
+  return data;
+}
+function gap(a, b) {
+  const m = Math.round((new Date(b) - new Date(a)) / 60000);
+  return m < 60 ? `через ${m} мин` : m < 1440 ? `через ${Math.floor(m / 60)} ч ${m % 60} мин` : `через ${Math.floor(m / 1440)} дн`;
+}
+function days(s) { return Math.floor((Date.now() - new Date(s)) / 86400000); }
+
+async function loadQueue() {
+  const q = await api('/analyst/cases');
+  const waiting = q.filter(c => c.needs_decision).length;
+  $('queueTitle').textContent = `Очередь: ждут решения ${waiting} из ${q.length}`;
+  $('queue').innerHTML = q.map(c => `<button class="item ${c.case_id === current ? 'sel' : ''}" data-id="${c.case_id}">
+      <b>${esc(c.client)}</b>
+      <span class="muted">${KIND[c.kind]} · ${when(c.created_at)}</span><br>
+      <span class="pill ${c.role.verdict}">${esc(c.role.label)}</span>
+      <span class="pill ${c.needs_decision ? 'wait' : ''}">${esc(c.status_text)}</span>
+    </button>`).join('') || '<div class="card muted">Случаев нет.</div>';
+  $('queue').querySelectorAll('.item').forEach(b => b.onclick = () => open(+b.dataset.id));
+}
+
+async function open(id) {
+  current = id;
+  const c = await api('/analyst/cases/' + id);
+  const pts = p => `<span class="pts ${p > 0 ? 'plus' : 'minus'}">${p > 0 ? '+' : '−'}${Math.abs(p)}</span>`;
+  const approve = c.kind === 'block' ? 'Снять ограничения' : 'Разрешить перевод';
+  const reject = c.kind === 'block' ? 'Оставить ограничения' : 'Отменить перевод';
+  $('detail').innerHTML = `
+    <div class="card">
+      <h2 style="font-size:19px">${esc(c.client)}</h2>
+      <div class="muted">${KIND[c.kind]} · случай №${c.case_id} · счёт открыт ${days(c.account_opened_at)} дн. назад</div>
+      <p><span class="pill ${c.role.verdict}" style="font-size:14px;padding:4px 12px">${esc(c.role.label)}</span></p>
+      <div class="muted">Это подсказка по правилам ниже. Решение принимает сотрудник.</div>
+    </div>
+    <div class="card">
+      <h2>Цепочка переводов</h2>
+      <div class="chain">
+        <div class="node"><span class="muted">Отправитель</span><b>${esc(c.incoming.sender)}</b></div>
+        <div class="arrow"><strong>${money(c.incoming.amount)} →</strong>${when(c.incoming.created_at)}</div>
+        <div class="node"><span class="muted">Клиент</span><b>${esc(c.client)}</b></div>
+        <div class="arrow"><strong>${money(c.outgoing.amount)} →</strong>${gap(c.incoming.created_at, c.outgoing.created_at)}</div>
+        <div class="node"><span class="muted">Получатель · счёту ${days(c.outgoing.receiver_opened)} дн.</span><b>${esc(c.outgoing.receiver)}</b></div>
+      </div>
+    </div>
+    <div class="grid2">
+      <div class="card"><h2>Роль клиента: что учтено</h2>
+        <ul>${c.role.factors.map(f => `<li>${pts(f.points)}<span>${esc(f.text)}</span></li>`).join('')}</ul></div>
+      <div class="card"><h2>Почему сработал перехват: ${c.score} баллов</h2>
+        <ul>${c.reasons.map(r => `<li><span class="pts">${r.points}</span><span>${esc(r.text)}</span></li>`).join('')}</ul></div>
+    </div>
+    <div class="card"><h2>Объяснение клиента</h2>
+      ${c.explanation ? `<blockquote>${esc(c.explanation)}</blockquote>` : '<div class="muted">Клиент пока ничего не прислал.</div>'}
+      ${c.documents.length ? '<h2 style="margin-top:12px">Документы</h2>' + c.documents.map(d =>
+        `<div><a href="/documents/${d.id}" target="_blank" rel="noopener">${esc(d.filename)}</a> <span class="muted">${esc(d.title)}, ${Math.max(1, Math.round(d.size / 1024))} КБ</span></div>`).join('') : ''}
+    </div>
+    <div class="card"><h2>Решение</h2>
+      ${c.needs_decision ? `
+        <textarea id="comment" placeholder="Комментарий для клиента. При отказе обязателен."></textarea>
+        <div class="actions"><button class="act approve" id="approve">${approve}</button><button class="act reject" id="reject">${reject}</button></div>
+        <div id="err"></div>` : `
+        <span class="pill">${esc(c.status_text)}</span> <span class="muted">${c.decided_at ? when(c.decided_at) : ''}</span>
+        ${c.decision_comment ? `<blockquote>${esc(c.decision_comment)}</blockquote>` : ''}`}
+    </div>`;
+  if (c.needs_decision) for (const d of ['approve', 'reject']) $(d).onclick = async () => {
+    try { await api(`/analyst/cases/${id}/decision`, {decision: d, comment: $('comment').value}); await open(id); }
+    catch (e) { $('err').innerHTML = `<div class="note">${esc(e.message)}</div>`; }
+  };
+  loadQueue();
+}
+loadQueue();
+</script>
+</body>
+</html>
