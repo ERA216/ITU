@@ -53,16 +53,19 @@
   details { margin-top:10px; font-size:14px; }
   summary { cursor:pointer; color:var(--muted); }
   [hidden] { display:none !important; }
+  button.link { width:auto; padding:0 4px; background:none; color:var(--brand); font-weight:600; text-decoration:underline; }
+  button:disabled { opacity:.6; }
 </style>
 </head>
 <body>
 <div class="phone">
-  <header><b>Чистый счёт</b><select id="who" aria-label="Клиент"></select></header>
+  <header><b>Чистый счёт</b><select id="who" aria-label="Войти как"></select></header>
   <p class="muted" style="margin:-4px 0 12px"><a href="/analyst" style="color:inherit">Панель аналитика банка</a></p>
 
   <div class="card">
-    <div class="muted">Баланс</div>
+    <div class="muted">Доступно</div>
     <div class="balance" id="balance">…</div>
+    <div class="muted" id="heldLine"></div>
   </div>
 
   <div class="card blocked" id="blockCard" hidden></div>
@@ -72,7 +75,7 @@
     <label for="to">Кому</label>
     <select id="to"></select>
     <label for="amount">Сумма, ₸</label>
-    <input id="amount" type="number" min="1" inputmode="numeric" placeholder="0">
+    <input id="amount" type="number" min="1" step="1" inputmode="numeric" placeholder="0">
     <button class="primary" id="send">Перевести</button>
     <div id="note"></div>
   </div>
@@ -91,23 +94,29 @@
     <div class="law">Если переслать эти деньги дальше, вас могут посчитать дроппером: счёт заблокируют, а по статье 232-1 УК РК грозит до семи лет.</div>
     <button class="primary" id="ret"></button>
     <button class="ghost" id="insist">Всё равно хочу перевести</button>
+    <button class="ghost" id="later">Решу позже: перевод останется на паузе</button>
   </div>
 </div>
 
 <script>
 const $ = id => document.getElementById(id);
+const esc = s => String(s ?? '').replace(/[&<>"]/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[ch]));
 const money = n => Number(n).toLocaleString('ru-RU') + ' ₸';
 let people = [], me = null, held = null, appeal = null;
 
 async function api(path, body) {
   const r = await fetch(path, body ? {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)} : {});
   const data = await r.json().catch(() => ({}));
-  if (!r.ok) throw new Error(data.detail || 'Ошибка запроса');
+  if (!r.ok) { const e = new Error(typeof data.detail === 'string' ? data.detail : 'Ошибка запроса'); e.status = r.status; throw e; }
   return data;
 }
-function note(text, kind) { $('note').innerHTML = text ? `<div class="note ${kind}">${text}</div>` : ''; }
+function note(text, kind) { $('note').innerHTML = text ? `<div class="note ${kind}">${esc(text)}</div>` : ''; }
 
-const esc = s => String(s).replace(/[&<>"]/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[ch]));
+// Демо-вход: выбор персонажа открывает сессию этого клиента на сервере.
+async function loginAs(id) {
+  await api('/login', {role: 'client', client_id: id});
+  me = id; $('who').value = id;
+}
 
 async function loadBlock() {
   appeal = await api(`/clients/${me}/case`);
@@ -119,11 +128,12 @@ async function loadBlock() {
   if (appeal.can_submit) {
     html += `<h2 style="color:inherit;margin-top:16px">Что нужно от вас</h2>
       <label for="expl">Опишите своими словами, что произошло</label>
-      <textarea id="expl" placeholder="Кто прислал деньги, о чём просил, почему вы перевели их дальше"></textarea>` +
+      <textarea id="expl" maxlength="2000" placeholder="Кто прислал деньги, о чём просил, почему вы перевели их дальше"></textarea>` +
       appeal.required.map(d => `<div class="doc"><b>${esc(d.title)}${d.required ? '' : ' (если есть)'}</b>
         ${d.uploaded ? '<span class="have">Загружено: ' + appeal.documents.filter(x => x.kind === d.kind).map(x => esc(x.filename)).join(', ') + '</span>' : ''}
-        <input type="file" data-kind="${d.kind}" aria-label="${esc(d.title)}"></div>`).join('') +
-      `<button class="primary" id="submitAppeal">Отправить на рассмотрение</button>`;
+        <input type="file" accept="image/png,image/jpeg,application/pdf" data-kind="${esc(d.kind)}" aria-label="${esc(d.title)}"></div>`).join('') +
+      `<p class="muted">Фото PNG или JPEG либо PDF, до 5 МБ, не больше ${appeal.max_documents} файлов.</p>
+      <button class="primary" id="submitAppeal">Отправить на рассмотрение</button>`;
   } else {
     if (appeal.documents.length) html += `<p class="muted">Вы отправили: ${appeal.documents.map(d => esc(d.filename)).join(', ')}.</p>`;
     if (appeal.decision_comment) html += `<div class="note err"><b>Ответ банка:</b> ${esc(appeal.decision_comment)}</div>`;
@@ -136,6 +146,7 @@ async function loadBlock() {
     const f = inp.files[0]; if (!f) return;
     const text = $('expl').value;
     try {
+      if (f.size > 5 * 1024 * 1024) throw new Error('Файл больше 5 МБ');
       const b64 = await new Promise((ok, bad) => { const r = new FileReader();
         r.onload = () => ok(r.result.split(',')[1]); r.onerror = bad; r.readAsDataURL(f); });
       await api(`/cases/${appeal.case_id}/documents`, {kind: inp.dataset.kind, filename: f.name, content_base64: b64});
@@ -149,9 +160,24 @@ async function loadBlock() {
   };
 }
 
+// Что стало с переводом, который система остановила.
+function heldTag(t) {
+  if (!t.case_id) return {held: ['held', 'на паузе'], cancelled: ['', 'отменён']}[t.status] || null;
+  return ({
+    open: ['held', 'на паузе: выберите, что делать'],
+    under_review: ['held', 'на паузе: проверяет банк'],
+    returned: ['', 'отменён: деньги возвращены отправителю'],
+    cancelled: ['held', 'отменён банком'],
+    released: ['', 'разрешён банком'],
+  })[t.case_status] || (t.status === 'cancelled' ? ['', 'отменён'] : null);
+}
+
 async function load() {
-  const c = await api('/clients/' + me);
-  $('balance').textContent = money(c.balance);
+  let c;
+  try { c = await api('/clients/' + me); }
+  catch (e) { if (e.status !== 401 && e.status !== 403) throw e; await loginAs(me); c = await api('/clients/' + me); }
+  $('balance').textContent = money(c.available);
+  $('heldLine').textContent = c.held ? `Ещё ${money(c.held)} на паузе до решения по остановленному переводу` : '';
   const blocked = c.status === 'blocked';
   $('blockCard').hidden = !blocked; $('transferCard').hidden = blocked;
   if (blocked) await loadBlock();
@@ -160,52 +186,61 @@ async function load() {
     const last = await api(`/clients/${me}/case`).catch(() => null);
     if (last && last.status === 'unblocked' && !$('note').innerHTML) note('Ограничения сняты. Спасибо, что объяснили ситуацию: счётом снова можно пользоваться.', 'ok');
   }
-  $('to').innerHTML = people.filter(p => p.id !== me).map(p => `<option value="${p.id}">${p.name}</option>`).join('');
-  const status = {held:'на паузе', cancelled:'отменён'};
+  $('to').innerHTML = people.filter(p => p.id !== me).map(p => `<option value="${p.id}">${esc(p.name)}</option>`).join('');
   $('feed').innerHTML = c.feed.map(t => {
     const incoming = t.direction === 'in';
     const title = t.return_of ? 'Возврат отправителю' : (incoming ? 'От: ' + t.sender : 'Кому: ' + t.receiver);
-    const tag = status[t.status] ? `<span class="tag ${t.status}">${status[t.status]}</span>` : '';
-    return `<div class="row"><div>${title} ${tag}<div class="muted">${t.created_at.replace('T',' ').slice(0,16)}</div></div>
+    const tag = incoming ? null : heldTag(t);
+    const open = !incoming && t.case_status === 'open' ? ` <button class="link" data-case="${t.case_id}">Решить</button>` : '';
+    const answer = !incoming && t.decision_comment ? `<div class="muted">Ответ банка: ${esc(t.decision_comment)}</div>` : '';
+    return `<div class="row"><div>${esc(title)} ${tag ? `<span class="tag ${tag[0]}">${tag[1]}</span>` : ''}${open}
+            <div class="muted">${esc(t.created_at.replace('T',' ').slice(0,16))}</div>${answer}</div>
             <div class="amt ${incoming ? 'in' : ''}">${incoming ? '+' : '−'}${money(t.amount)}</div></div>`;
   }).join('') || '<div class="muted">Операций пока нет</div>';
+  $('feed').querySelectorAll('button[data-case]').forEach(b => b.onclick = async () => showStop(await api('/cases/' + b.dataset.case)));
+}
+
+function showStop(r) {
+  held = r;
+  $('reasons').innerHTML = r.reasons.map(x => `<li>${esc(x.text)}</li>`).join('');
+  $('ret').textContent = `Вернуть ${money(r.safe_return.amount)} отправителю`;
+  $('overlay').classList.add('show');
 }
 
 $('send').onclick = async () => {
-  note('');
+  note(''); $('send').disabled = true;
   try {
-    const r = await api('/transfers', {sender_id: me, receiver_id: +$('to').value, amount: +$('amount').value});
-    if (r.status === 'held') {
-      held = r;
-      $('reasons').innerHTML = r.reasons.map(x => `<li>${x.text}</li>`).join('');
-      $('ret').textContent = `Вернуть ${money(r.safe_return.amount)} отправителю`;
-      $('overlay').classList.add('show');
-    } else {
-      note('Перевод выполнен', 'ok'); $('amount').value = '';
-    }
+    const r = await api('/transfers', {receiver_id: +$('to').value, amount: Math.floor(+$('amount').value)});
+    if (r.status === 'held') showStop(r);
+    else { note('Перевод выполнен', 'ok'); $('amount').value = ''; }
+  } catch (e) { note(e.message, 'err'); }
+  $('send').disabled = false; load();
+};
+$('ret').onclick = async () => {
+  $('overlay').classList.remove('show');
+  try {
+    const r = await api(`/cases/${held.case_id}/return-to-sender`, {});
+    note(`Вернули ${money(r.amount)} на счёт, с которого они пришли. Вы ничего не нарушили.`, 'ok'); $('amount').value = '';
   } catch (e) { note(e.message, 'err'); }
   load();
 };
-$('ret').onclick = async () => {
-  try {
-    const r = await api(`/cases/${held.case_id}/return-to-sender`, {});
-    note(`Вернули ${money(r.amount)} на счёт, с которого они пришли. Вы ничего не нарушили.`, 'ok');
-  } catch (e) { note(e.message, 'err'); }
-  $('overlay').classList.remove('show'); $('amount').value = ''; load();
-};
 $('insist').onclick = async () => {
+  $('overlay').classList.remove('show');
   try {
     await api(`/cases/${held.case_id}/insist`, {});
-    note('Перевод остаётся на паузе. Его проверит сотрудник банка, статус появится здесь.', 'err');
+    note('Перевод остаётся на паузе. Его проверит сотрудник банка, ответ появится в списке операций.', 'err');
   } catch (e) { note(e.message, 'err'); }
-  $('overlay').classList.remove('show'); load();
+  load();
 };
-$('who').onchange = () => { me = +$('who').value; note(''); load(); };
+$('later').onclick = () => { $('overlay').classList.remove('show'); load(); };
+$('who').onchange = async () => { note(''); await loginAs(+$('who').value); load(); };
 
 (async () => {
   people = await api('/demo/clients');
-  $('who').innerHTML = people.map(p => `<option value="${p.id}">${p.name}</option>`).join('');
-  me = people[0].id; load();
+  $('who').innerHTML = people.map(p => `<option value="${p.id}">${esc(p.name)}</option>`).join('');
+  const s = await api('/me').catch(() => null);
+  await loginAs(s && s.client ? s.client.client_id : people[0].id);
+  load();
 })();
 </script>
 </body>
