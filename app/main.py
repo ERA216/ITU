@@ -1,14 +1,17 @@
 """API демо-банка.  Запуск:  uvicorn app.main:app --reload"""
 import json
+import os
 from datetime import datetime
 
 from fastapi import FastAPI, HTTPException
+from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
 from . import db, engine
 
 app = FastAPI(title="Чистый счёт: защита от статуса дроппера")
 conn = db.connect()
+STATIC = os.path.join(os.path.dirname(__file__), "static")
 
 
 class TransferIn(BaseModel):
@@ -31,6 +34,19 @@ def _client(cid: int):
 def _move(sender_id: int, receiver_id: int, amount: int):
     conn.execute("UPDATE clients SET balance = balance - ? WHERE id=?", (amount, sender_id))
     conn.execute("UPDATE clients SET balance = balance + ? WHERE id=?", (amount, receiver_id))
+
+
+@app.get("/", include_in_schema=False)
+def client_app():
+    """Экраны клиента."""
+    return FileResponse(os.path.join(STATIC, "index.html"))
+
+
+@app.get("/demo/clients")
+def demo_clients():
+    """Персонажи для показа: между ними переключается демо-экран."""
+    rows = conn.execute("SELECT id, name FROM clients WHERE id >= 1001 ORDER BY id").fetchall()
+    return [dict(r) for r in rows]
 
 
 @app.get("/clients/{cid}")
