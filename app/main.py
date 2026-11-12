@@ -1,6 +1,8 @@
 """API демо-банка.  Запуск:  uvicorn app.main:app --reload"""
+import base64
 import json
 import os
+import re
 from datetime import datetime
 
 from fastapi import FastAPI, HTTPException
@@ -12,12 +14,37 @@ from . import db, engine
 app = FastAPI(title="Чистый счёт: защита от статуса дроппера")
 conn = db.connect()
 STATIC = os.path.join(os.path.dirname(__file__), "static")
+UPLOADS = os.environ.get("CA_UPLOADS", os.path.join(os.path.dirname(__file__), "..", "uploads"))
+MAX_FILE = 5 * 1024 * 1024
+
+# Какие документы просим при блокировке из-за пересылки чужих денег.
+DOC_KINDS = {
+    "chat": {"title": "Переписка с тем, кто просил переслать деньги", "required": True},
+    "deal": {"title": "Объявление, договор или чек, если деньги были оплатой товара", "required": False},
+    "other": {"title": "Другое подтверждение", "required": False},
+}
+STATUS_TEXT = {
+    "open": "Ждём ваши документы",
+    "under_review": "На рассмотрении у сотрудника банка",
+    "unblocked": "Ограничения сняты",
+    "kept": "Ограничения оставлены",
+}
 
 
 class TransferIn(BaseModel):
     sender_id: int
     receiver_id: int
     amount: int
+
+
+class DocumentIn(BaseModel):
+    kind: str
+    filename: str
+    content_base64: str
+
+
+class AppealIn(BaseModel):
+    explanation: str
 
 
 def _now() -> datetime:
@@ -137,3 +164,105 @@ def list_cases():
         """SELECT k.*, c.name AS client FROM cases k JOIN clients c ON c.id=k.client_id
            ORDER BY k.created_at DESC""").fetchall()
     return [dict(r) | {"reasons": json.loads(r["reasons"])} for r in rows]
+
+
+# ---------- Апелляция: клиент заблокирован и объясняет, что произошло ----------
+
+def _block_case(case_id: int):
+    case = conn.execute("SELECT * FROM cases WHERE id=? AND kind='block'", (case_id,)).fetchone()
+    if not case:
+        raise HTTPException(404, "Случай не найден")
+    return case
+
+
+def _money(n: int) -> str:
+    return f"{n:,}".replace(",", " ") + " ₸"
+
+
+def _minutes_text(minutes: int) -> str:
+    if minutes < 60:
+        return f"{minutes} мин"
+    return f"{minutes // 60} ч {minutes % 60} мин" if minutes < 1440 else f"{minutes // 1440} дн"
+
+
+def _case_view(case) -> dict:
+    inc = conn.execute(
+        """SELECT t.amount, t.created_at, c.name FROM transfers t JOIN clients c ON c.id=t.sender_id
+           WHERE t.id=?""", (case["incoming_transfer_id"],)).fetchone()
+    out = conn.execute(
+        """SELECT t.amount, t.created_at, c.name, c.account_opened_at FROM transfers t
+           JOIN clients c ON c.id=t.receiver_id WHERE t.id=?""", (case["transfer_id"],)).fetchone()
+    gap = int((datetime.fromisoformat(out["created_at"]) - datetime.fromisoformat(inc["created_at"])).total_seconds() // 60)
+    docs = conn.execute("SELECT id, kind, filename, size, uploaded_at FROM documents WHERE case_id=? ORDER BY id",
+                        (case["id"],)).fetchall()
+    have = {d["kind"] for d in docs}
+    return {
+        "case_id": case["id"],
+        "status": case["status"],
+        "status_text": STATUS_TEXT.get(case["status"], case["status"]),
+        "summary": (f"Вы получили {_money(inc['amount'])} от человека, с которым раньше не было переводов, "
+                    f"и через {_minutes_text(gap)} переслали {_money(out['amount'])} третьему лицу. "
+                    "Так обычно выводят украденные деньги, поэтому банк приостановил операции "
+                    "до выяснения."),
+        "reasons": json.loads(case["reasons"]),
+        "explanation": case["explanation"],
+        "required": [{"kind": k, **v, "uploaded": k in have} for k, v in DOC_KINDS.items()],
+        "documents": [dict(d) for d in docs],
+        "can_submit": case["status"] == "open",
+    }
+
+
+@app.get("/clients/{cid}/case")
+def client_case(cid: int):
+    """Последний случай блокировки клиента: причина простым языком, документы, статус."""
+    _client(cid)
+    case = conn.execute("SELECT * FROM cases WHERE client_id=? AND kind='block' ORDER BY id DESC LIMIT 1",
+                        (cid,)).fetchone()
+    if not case:
+        raise HTTPException(404, "Блокировок нет")
+    return _case_view(case)
+
+
+@app.post("/cases/{case_id}/documents")
+def upload_document(case_id: int, body: DocumentIn):
+    """Клиент прикладывает документ к апелляции."""
+    case = _block_case(case_id)
+    if case["status"] != "open":
+        raise HTTPException(409, "Документы уже отправлены на рассмотрение")
+    if body.kind not in DOC_KINDS:
+        raise HTTPException(400, "Неизвестный тип документа")
+    try:
+        data = base64.b64decode(body.content_base64, validate=True)
+    except Exception:
+        raise HTTPException(400, "Файл повреждён")
+    if not data or len(data) > MAX_FILE:
+        raise HTTPException(400, "Файл пустой или больше 5 МБ")
+    name = re.sub(r"[^\w.\- ]", "_", os.path.basename(body.filename))[:80] or "file"
+    now = _now().isoformat()
+    cur = conn.execute("INSERT INTO documents(case_id,kind,filename,size,uploaded_at) VALUES(?,?,?,?,?)",
+                       (case_id, body.kind, name, len(data), now))
+    os.makedirs(UPLOADS, exist_ok=True)
+    path = os.path.join(UPLOADS, f"{cur.lastrowid}_{name}")
+    with open(path, "wb") as f:
+        f.write(data)
+    conn.execute("UPDATE documents SET path=? WHERE id=?", (path, cur.lastrowid))
+    conn.commit()
+    return {"id": cur.lastrowid, "kind": body.kind, "filename": name, "size": len(data)}
+
+
+@app.post("/cases/{case_id}/submit")
+def submit_appeal(case_id: int, body: AppealIn):
+    """Клиент отправляет апелляцию: объяснение и обязательные документы."""
+    case = _block_case(case_id)
+    if case["status"] != "open":
+        raise HTTPException(409, "Апелляция уже отправлена")
+    text = body.explanation.strip()
+    if len(text) < 20:
+        raise HTTPException(400, "Опишите, что произошло, хотя бы в двух предложениях")
+    have = {r["kind"] for r in conn.execute("SELECT kind FROM documents WHERE case_id=?", (case_id,))}
+    missing = [v["title"] for k, v in DOC_KINDS.items() if v["required"] and k not in have]
+    if missing:
+        raise HTTPException(400, "Не хватает документа: " + "; ".join(missing))
+    conn.execute("UPDATE cases SET status='under_review', explanation=? WHERE id=?", (text[:2000], case_id))
+    conn.commit()
+    return _case_view(_block_case(case_id))
