@@ -33,8 +33,10 @@ CREATE TABLE IF NOT EXISTS cases (
     kind TEXT NOT NULL,                 -- intercept | block
     score INTEGER NOT NULL,
     reasons TEXT NOT NULL,              -- JSON-список сработавших признаков
-    status TEXT NOT NULL DEFAULT 'open',-- open | returned | under_review | unblocked | kept
+    status TEXT NOT NULL DEFAULT 'open',-- open | returned | under_review | unblocked | kept | released | cancelled
     explanation TEXT,                   -- объяснение клиента при апелляции
+    decision_comment TEXT,              -- комментарий аналитика к решению
+    decided_at TEXT,
     created_at TEXT NOT NULL
 );
 CREATE TABLE IF NOT EXISTS documents (
