@@ -87,3 +87,78 @@ def evaluate(conn, sender_id: int, receiver_id: int, amount: int, now: datetime)
         "reasons": reasons,
         "incoming_id": incoming["id"] if incoming else None,
     }
+
+
+def forward_episodes(conn, client_id: int, until: datetime, days: int = 90) -> list[dict]:
+    """Эпизоды «получил от незнакомца и переслал третьему лицу» за последние дни."""
+    since = (until - timedelta(days=days)).isoformat()
+    incomings = conn.execute(
+        """SELECT * FROM transfers WHERE receiver_id=? AND status='done' AND return_of IS NULL
+           AND created_at >= ? AND created_at <= ? ORDER BY created_at""",
+        (client_id, since, until.isoformat())).fetchall()
+    episodes = []
+    for inc in incomings:
+        if _had_contact(conn, client_id, inc["sender_id"], inc["created_at"], inc["id"]):
+            continue
+        limit = (_dt(inc["created_at"]) + timedelta(hours=LOOKBACK_HOURS)).isoformat()
+        out = conn.execute(
+            """SELECT * FROM transfers WHERE sender_id=? AND status='done' AND receiver_id != ?
+               AND created_at > ? AND created_at <= ? AND amount BETWEEN ? AND ?
+               ORDER BY created_at LIMIT 1""",
+            (client_id, inc["sender_id"], inc["created_at"], limit,
+             0.8 * inc["amount"], 1.02 * inc["amount"])).fetchone()
+        if out:
+            episodes.append({"incoming_id": inc["id"], "outgoing_id": out["id"], "from": inc["sender_id"]})
+    return episodes
+
+
+def assess_role(conn, client_id: int, case, now: datetime) -> dict:
+    """Подсказка аналитику: невольный участник или организатор. Решение остаётся за человеком."""
+    client = conn.execute("SELECT * FROM clients WHERE id=?", (client_id,)).fetchone()
+    factors: list[dict] = []
+    score = 0
+
+    def add(points: int, text: str):
+        nonlocal score
+        score += points
+        factors.append({"points": points, "text": text})
+
+    age = (now - _dt(client["account_opened_at"])).days
+    if age >= 180:
+        add(2, f"Счёт открыт давно: {age} дн. назад")
+    elif age < 30:
+        add(-2, f"Счёт открыт недавно: {age} дн. назад")
+
+    episodes = forward_episodes(conn, client_id, now)
+    if len(episodes) <= 1:
+        add(2, "Пересылка чужих денег была один раз")
+    elif len(episodes) >= 3:
+        add(-3, f"Пересылка чужих денег повторялась, эпизодов за 90 дней: {len(episodes)}")
+    else:
+        add(-1, "Пересылка чужих денег была дважды")
+    senders = {e["from"] for e in episodes}
+    if len(senders) >= 3:
+        add(-2, f"Деньги приходили от {len(senders)} разных незнакомых людей")
+
+    first = min((e["incoming_id"] for e in episodes), default=None)
+    before = conn.execute("SELECT created_at FROM transfers WHERE id=?", (first,)).fetchone() if first else None
+    cutoff = before["created_at"] if before else now.isoformat()
+    usual = conn.execute(
+        """SELECT COUNT(*) AS n FROM transfers WHERE status='done' AND created_at < ?
+           AND (sender_id=? OR receiver_id=?)""", (cutoff, client_id, client_id)).fetchone()["n"]
+    if usual >= 5:
+        add(1, f"До этого счётом пользовались обычно: {usual} переводов")
+    elif usual == 0:
+        add(-1, "До этого по счёту не было ни одного перевода")
+
+    docs = conn.execute("SELECT COUNT(*) AS n FROM documents WHERE case_id=?", (case["id"],)).fetchone()["n"]
+    if case["explanation"] and docs:
+        add(1, "Клиент сам объяснил ситуацию и приложил документы")
+
+    if score >= 3:
+        verdict, label = "unwitting", "Похоже на невольного участника"
+    elif score <= -1:
+        verdict, label = "organizer", "Похоже на организатора или осознанного дроппера"
+    else:
+        verdict, label = "unclear", "Данных недостаточно, нужна ручная проверка"
+    return {"verdict": verdict, "label": label, "score": score, "factors": factors, "episodes": len(episodes)}
