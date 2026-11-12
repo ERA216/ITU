@@ -39,6 +39,10 @@ CREATE TABLE IF NOT EXISTS cases (
     decided_at TEXT,
     created_at TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS meta (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS documents (
     id INTEGER PRIMARY KEY,
     case_id INTEGER NOT NULL REFERENCES cases(id),
@@ -46,6 +50,7 @@ CREATE TABLE IF NOT EXISTS documents (
     filename TEXT NOT NULL,
     path TEXT,
     size INTEGER NOT NULL DEFAULT 0,
+    media_type TEXT,
     uploaded_at TEXT NOT NULL
 );
 """
