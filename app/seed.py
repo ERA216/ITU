@@ -140,6 +140,7 @@ def _demo_personas(conn, now: datetime):
         (1004, "Мама", now - timedelta(days=2000), 150000, "honest"),
         (1005, "Данияр (продаёт на маркетплейсе)", now - timedelta(days=700), 61000, "honest"),
         (1006, "Покупатель", now - timedelta(days=1200), 90000, "honest"),
+        (1007, "Руслан (счёту 12 дней)", now - timedelta(days=12), 4000, "dropper"),
     ]
     conn.executemany(
         "INSERT INTO clients(id,name,account_opened_at,balance,true_kind) VALUES(?,?,?,?,?)",
@@ -153,6 +154,13 @@ def _demo_personas(conn, now: datetime):
         "INSERT INTO transfers(sender_id,receiver_id,amount,created_at,scenario) VALUES(?,?,?,?,?)",
         [(s, r, a, t.isoformat(), sc) for s, r, a, t, sc in tr])
     conn.execute("UPDATE clients SET balance = balance + 150000 WHERE id=1001")
+
+    # У Данияра обычная история продавца: оплаты от покупателей и расчёты с поставщиком.
+    for n, (other, amount, incoming) in enumerate([(21, 18000, True), (35, 42000, True), (8, 30000, False),
+                                                   (52, 9500, True), (8, 25000, False), (64, 27000, True)]):
+        pair = (other, 1005) if incoming else (1005, other)
+        conn.execute("INSERT INTO transfers(sender_id,receiver_id,amount,created_at,scenario) VALUES(?,?,?,?,?)",
+                     (*pair, amount, (now - timedelta(days=60 - 8 * n)).isoformat(), "demo"))
 
     # Данияр уже переслал чужие деньги два дня назад и заблокирован: на нём показываем апелляцию.
     t_in = now - timedelta(days=2, hours=3)
@@ -169,6 +177,25 @@ def _demo_personas(conn, now: datetime):
         (1005, cur.lastrowid, inc_id, "block", res["score"],
          json.dumps(res["reasons"], ensure_ascii=False), (t_out + timedelta(hours=5)).isoformat()))
     conn.execute("UPDATE clients SET status='blocked' WHERE id=1005")
+
+    # Руслан за пять дней четыре раза переслал деньги от разных незнакомцев: для контраста в панели аналитика.
+    last = None
+    for n, (victim, amount) in enumerate([(11, 120000), (27, 300000), (43, 85000), (58, 210000)]):
+        t_in = now - timedelta(days=5 - n, hours=2)
+        t_out = t_in + timedelta(minutes=12)
+        cur = conn.execute("INSERT INTO transfers(sender_id,receiver_id,amount,created_at,scenario) VALUES(?,?,?,?,?)",
+                           (victim, 1007, amount, t_in.isoformat(), "demo_in"))
+        inc_id = cur.lastrowid
+        res = engine.evaluate(conn, 1007, 1003, int(amount * 0.95), t_out)
+        cur = conn.execute("INSERT INTO transfers(sender_id,receiver_id,amount,created_at,scenario) VALUES(?,?,?,?,?)",
+                           (1007, 1003, int(amount * 0.95), t_out.isoformat(), "demo_out"))
+        last = (cur.lastrowid, inc_id, res, t_out)
+    conn.execute(
+        """INSERT INTO cases(client_id,transfer_id,incoming_transfer_id,kind,score,reasons,created_at)
+           VALUES(?,?,?,?,?,?,?)""",
+        (1007, last[0], last[1], "block", last[2]["score"],
+         json.dumps(last[2]["reasons"], ensure_ascii=False), (last[3] + timedelta(hours=1)).isoformat()))
+    conn.execute("UPDATE clients SET status='blocked' WHERE id=1007")
 
 
 if __name__ == "__main__":
