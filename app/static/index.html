@@ -58,6 +58,7 @@
 <body>
 <div class="phone">
   <header><b>Чистый счёт</b><select id="who" aria-label="Клиент"></select></header>
+  <p class="muted" style="margin:-4px 0 12px"><a href="/analyst" style="color:inherit">Панель аналитика банка</a></p>
 
   <div class="card">
     <div class="muted">Баланс</div>
@@ -124,7 +125,8 @@ async function loadBlock() {
         <input type="file" data-kind="${d.kind}" aria-label="${esc(d.title)}"></div>`).join('') +
       `<button class="primary" id="submitAppeal">Отправить на рассмотрение</button>`;
   } else {
-    html += `<p class="muted">Вы отправили: ${appeal.documents.map(d => esc(d.filename)).join(', ')}.</p>`;
+    if (appeal.documents.length) html += `<p class="muted">Вы отправили: ${appeal.documents.map(d => esc(d.filename)).join(', ')}.</p>`;
+    if (appeal.decision_comment) html += `<div class="note err"><b>Ответ банка:</b> ${esc(appeal.decision_comment)}</div>`;
   }
   html += `<div id="blockNote"></div>
     <p class="muted">Банк рассматривает свою часть. Если сведения о вас есть в базе Антифрод-центра, исключить их могут только правоохранительные органы.</p>`;
@@ -153,6 +155,11 @@ async function load() {
   const blocked = c.status === 'blocked';
   $('blockCard').hidden = !blocked; $('transferCard').hidden = blocked;
   if (blocked) await loadBlock();
+  else {
+    // Если блокировку только что сняли, говорим об этом клиенту.
+    const last = await api(`/clients/${me}/case`).catch(() => null);
+    if (last && last.status === 'unblocked' && !$('note').innerHTML) note('Ограничения сняты. Спасибо, что объяснили ситуацию: счётом снова можно пользоваться.', 'ok');
+  }
   $('to').innerHTML = people.filter(p => p.id !== me).map(p => `<option value="${p.id}">${p.name}</option>`).join('');
   const status = {held:'на паузе', cancelled:'отменён'};
   $('feed').innerHTML = c.feed.map(t => {
