@@ -95,22 +95,22 @@ def generate(rng: random.Random, now: datetime):
     return clients, events
 
 
-def build(path: str | None = None, seed: int = 7, now: datetime | None = None, verbose: bool = True):
-    path = path or db.DB_PATH
-    if os.path.exists(path):
-        os.remove(path)
+def populate(conn, seed: int = 7, now: datetime | None = None, evaluate: bool = True, reset: bool = False) -> dict:
+    """Заполняет базу. evaluate=True дополнительно проигрывает переводы через движок и считает качество."""
+    if reset:
+        for table in ("documents", "cases", "transfers", "clients", "meta"):
+            conn.execute(f"DELETE FROM {table}")
     now = (now or datetime.now()).replace(microsecond=0)
     rng = random.Random(seed)
     clients, events = generate(rng, now)
-    conn = db.connect(path)
     conn.executemany(
         "INSERT INTO clients(id,name,account_opened_at,balance,true_kind) VALUES(?,?,?,?,?)",
         [(c["id"], c["name"], c["opened"].isoformat(), rng.randrange(20000, 900000, 1000), c["kind"])
          for c in clients])
 
-    stats = {"tri": 0, "tri_caught": 0, "honest": 0, "honest_held": 0}
+    stats = {"tri": 0, "tri_caught": 0, "honest": 0, "honest_held": 0, "clients": len(clients), "events": len(events)}
     for t, s, r, amount, scen in events:
-        if scen in ("tri_out", "benign_out", "normal") and t >= now - timedelta(days=EVAL_DAYS):
+        if evaluate and scen in ("tri_out", "benign_out", "normal") and t >= now - timedelta(days=EVAL_DAYS):
             res = engine.evaluate(conn, s, r, amount, t)
             held = res["decision"] == "hold"
             if scen == "tri_out":
@@ -121,13 +121,25 @@ def build(path: str | None = None, seed: int = 7, now: datetime | None = None, v
                      (s, r, amount, t.isoformat(), scen))
 
     _demo_personas(conn, now)
+    conn.execute("INSERT OR REPLACE INTO meta(key,value) VALUES('seeded_at',?)", (now.isoformat(),))
     conn.commit()
+    return stats
+
+
+def build(path: str | None = None, seed: int = 7, now: datetime | None = None, verbose: bool = True):
+    """Создаёт базу с нуля и печатает качество движка на этих данных."""
+    path = path or db.DB_PATH
+    if os.path.exists(path):
+        os.remove(path)
+    conn = db.connect(path)
+    stats = populate(conn, seed, now)
     if verbose:
-        print(f"Клиентов: {len(clients)}, переводов: {len(events)}")
-        print(f"Поймано переводов дропперам: {stats['tri_caught']} из {stats['tri']} "
-              f"({100 * stats['tri_caught'] / stats['tri']:.0f}%)")
-        print(f"Честных переводов остановлено зря: {stats['honest_held']} из {stats['honest']} "
-              f"({100 * stats['honest_held'] / stats['honest']:.2f}%)")
+        caught, held = stats["tri_caught"], stats["honest_held"]
+        print(f"Клиентов: {stats['clients']}, переводов: {stats['events']}")
+        print(f"Поймано переводов дропперам: {caught} из {stats['tri']} ({100 * caught / stats['tri']:.0f}%)")
+        print(f"Честных переводов остановлено зря: {held} из {stats['honest']} "
+              f"({100 * held / stats['honest']:.2f}%)")
+        print(f"Среди всех остановок настоящих схем: {100 * caught / max(1, caught + held):.0f}%")
     return conn, stats
 
 
