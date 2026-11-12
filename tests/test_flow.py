@@ -81,3 +81,52 @@ def test_blocked_client_sees_reason_and_appeals():
 
 def test_client_without_block_has_no_case():
     assert api.get(f"/clients/{MOM}/case").status_code == 404
+
+
+TRANSIT = 1007
+
+
+def test_analyst_sees_roles_and_decides():
+    queue = api.get("/analyst/cases").json()
+    by_client = {c["client_id"]: c for c in queue}
+    # Продавец с одним эпизодом и старым счётом и транзитный счёт оцениваются по-разному.
+    assert by_client[SELLER]["role"]["verdict"] == "unwitting"
+    assert by_client[TRANSIT]["role"]["verdict"] == "organizer"
+    assert by_client[TRANSIT]["role"]["episodes"] == 4
+    assert queue[0]["needs_decision"]
+
+    seller_case = by_client[SELLER]["case_id"]
+    card = api.get(f"/analyst/cases/{seller_case}").json()
+    assert card["incoming"]["amount"] == 200000 and card["outgoing"]["amount"] == 195000
+    assert card["explanation"] and card["documents"]
+    assert api.get(f"/documents/{card['documents'][0]['id']}").content == b"png-bytes"
+
+    # Отказ без причины не принимается.
+    transit_case = by_client[TRANSIT]["case_id"]
+    assert api.post(f"/analyst/cases/{transit_case}/decision", json={"decision": "reject"}).status_code == 400
+    kept = api.post(f"/analyst/cases/{transit_case}/decision",
+                    json={"decision": "reject", "comment": "Четыре пересылки от разных людей за пять дней."}).json()
+    assert kept["status"] == "kept" and kept["client_status"] == "blocked"
+
+    done = api.post(f"/analyst/cases/{seller_case}/decision", json={"decision": "approve"}).json()
+    assert done["status"] == "unblocked" and done["client_status"] == "active"
+    # Клиент видит результат и снова может переводить.
+    assert api.get(f"/clients/{SELLER}/case").json()["status"] == "unblocked"
+    assert api.post("/transfers", json={"sender_id": SELLER, "receiver_id": MOM, "amount": 1000}).json()["status"] == "done"
+    # Повторное решение невозможно.
+    assert api.post(f"/analyst/cases/{seller_case}/decision", json={"decision": "approve"}).status_code == 409
+
+
+def test_insisted_transfer_can_be_cancelled_by_analyst():
+    # Новый «ошибочный» входящий студентке, затем попытка переслать его дальше.
+    t = (datetime.now() - timedelta(minutes=10)).replace(microsecond=0).isoformat()
+    main.conn.execute("INSERT INTO transfers(sender_id,receiver_id,amount,created_at) VALUES(?,?,?,?)",
+                      (1006, STUDENT, 30000, t))
+    main.conn.execute("UPDATE clients SET balance = balance + 30000 WHERE id=?", (STUDENT,))
+    main.conn.commit()
+    r = api.post("/transfers", json={"sender_id": STUDENT, "receiver_id": DROP_CARD, "amount": 29000}).json()
+    assert r["status"] == "held"
+    assert api.post(f"/cases/{r['case_id']}/insist").json()["status"] == "under_review"
+    out = api.post(f"/analyst/cases/{r['case_id']}/decision",
+                   json={"decision": "reject", "comment": "Получатель похож на дропперский счёт."}).json()
+    assert out["status"] == "cancelled" and out["outgoing"]["status"] == "cancelled"
