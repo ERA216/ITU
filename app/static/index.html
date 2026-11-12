@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Чистый счёт</title>
+<style>
+  :root { --bg:#f3f5f4; --card:#fff; --ink:#14201b; --muted:#66736d; --line:#e2e7e4;
+          --brand:#0b6b4f; --warn:#b3261e; --warn-bg:#fdecea; --ok:#0b6b4f; --ok-bg:#e6f4ee; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--ink);
+         font:16px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  .phone { max-width:420px; margin:0 auto; min-height:100vh; padding:16px; }
+  header { display:flex; justify-content:space-between; align-items:center; gap:12px; margin-bottom:12px; }
+  header b { font-size:18px; color:var(--brand); }
+  select, input, button { font:inherit; }
+  select, input { width:100%; padding:10px 12px; border:1px solid var(--line); border-radius:10px; background:#fff; }
+  header select { width:auto; max-width:60%; }
+  .card { background:var(--card); border-radius:16px; padding:16px; margin-bottom:12px; }
+  .balance { font-size:30px; font-weight:700; font-variant-numeric:tabular-nums; }
+  .muted { color:var(--muted); font-size:14px; }
+  h2 { font-size:16px; margin:0 0 10px; }
+  label { display:block; font-size:14px; color:var(--muted); margin:10px 0 4px; }
+  button { border:0; border-radius:12px; padding:12px 14px; font-weight:600; cursor:pointer; width:100%; }
+  .primary { background:var(--brand); color:#fff; margin-top:14px; }
+  .ghost { background:transparent; color:var(--muted); font-weight:500; }
+  .row { display:flex; justify-content:space-between; gap:12px; padding:10px 0; border-top:1px solid var(--line); }
+  .row:first-of-type { border-top:0; }
+  .amt { font-variant-numeric:tabular-nums; white-space:nowrap; font-weight:600; }
+  .in { color:var(--ok); }
+  .tag { font-size:12px; padding:2px 8px; border-radius:99px; background:var(--line); color:var(--muted); }
+  .tag.held { background:var(--warn-bg); color:var(--warn); }
+  .note { border-radius:12px; padding:12px; font-size:14px; margin-top:12px; }
+  .note.ok { background:var(--ok-bg); color:var(--ok); }
+  .note.err { background:var(--warn-bg); color:var(--warn); }
+  .overlay { position:fixed; inset:0; background:rgba(20,32,27,.55); display:none; align-items:flex-end; justify-content:center; }
+  .overlay.show { display:flex; }
+  .sheet { background:#fff; width:100%; max-width:420px; border-radius:20px 20px 0 0; padding:20px 16px 16px; max-height:92vh; overflow:auto; }
+  .sheet h2 { font-size:20px; color:var(--warn); }
+  .sheet ul { padding-left:20px; margin:10px 0; }
+  .sheet li { margin:6px 0; }
+  .law { background:var(--warn-bg); border-radius:12px; padding:12px; font-size:14px; margin:12px 0; }
+</style>
+</head>
+<body>
+<div class="phone">
+  <header><b>Чистый счёт</b><select id="who" aria-label="Клиент"></select></header>
+
+  <div class="card">
+    <div class="muted">Баланс</div>
+    <div class="balance" id="balance">…</div>
+  </div>
+
+  <div class="card">
+    <h2>Перевод</h2>
+    <label for="to">Кому</label>
+    <select id="to"></select>
+    <label for="amount">Сумма, ₸</label>
+    <input id="amount" type="number" min="1" inputmode="numeric" placeholder="0">
+    <button class="primary" id="send">Перевести</button>
+    <div id="note"></div>
+  </div>
+
+  <div class="card">
+    <h2>Операции</h2>
+    <div id="feed"></div>
+  </div>
+</div>
+
+<div class="overlay" id="overlay" role="dialog" aria-modal="true" aria-labelledby="stopTitle">
+  <div class="sheet">
+    <h2 id="stopTitle">Мы остановили этот перевод</h2>
+    <p>Похоже на схему «ошибочный перевод»: вам прислали чужие деньги и просят переслать их третьему лицу.</p>
+    <ul id="reasons"></ul>
+    <div class="law">Если переслать эти деньги дальше, вас могут посчитать дроппером: счёт заблокируют, а по статье 232-1 УК РК грозит до семи лет.</div>
+    <button class="primary" id="ret"></button>
+    <button class="ghost" id="insist">Всё равно хочу перевести</button>
+  </div>
+</div>
+
+<script>
+const $ = id => document.getElementById(id);
+const money = n => Number(n).toLocaleString('ru-RU') + ' ₸';
+let people = [], me = null, held = null;
+
+async function api(path, body) {
+  const r = await fetch(path, body ? {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)} : {});
+  const data = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(data.detail || 'Ошибка запроса');
+  return data;
+}
+function note(text, kind) { $('note').innerHTML = text ? `<div class="note ${kind}">${text}</div>` : ''; }
+
+async function load() {
+  const c = await api('/clients/' + me);
+  $('balance').textContent = money(c.balance);
+  $('to').innerHTML = people.filter(p => p.id !== me).map(p => `<option value="${p.id}">${p.name}</option>`).join('');
+  const status = {held:'на паузе', cancelled:'отменён'};
+  $('feed').innerHTML = c.feed.map(t => {
+    const incoming = t.direction === 'in';
+    const title = t.return_of ? 'Возврат отправителю' : (incoming ? 'От: ' + t.sender : 'Кому: ' + t.receiver);
+    const tag = status[t.status] ? `<span class="tag ${t.status}">${status[t.status]}</span>` : '';
+    return `<div class="row"><div>${title} ${tag}<div class="muted">${t.created_at.replace('T',' ').slice(0,16)}</div></div>
+            <div class="amt ${incoming ? 'in' : ''}">${incoming ? '+' : '−'}${money(t.amount)}</div></div>`;
+  }).join('') || '<div class="muted">Операций пока нет</div>';
+}
+
+$('send').onclick = async () => {
+  note('');
+  try {
+    const r = await api('/transfers', {sender_id: me, receiver_id: +$('to').value, amount: +$('amount').value});
+    if (r.status === 'held') {
+      held = r;
+      $('reasons').innerHTML = r.reasons.map(x => `<li>${x.text}</li>`).join('');
+      $('ret').textContent = `Вернуть ${money(r.safe_return.amount)} отправителю`;
+      $('overlay').classList.add('show');
+    } else {
+      note('Перевод выполнен', 'ok'); $('amount').value = '';
+    }
+  } catch (e) { note(e.message, 'err'); }
+  load();
+};
+$('ret').onclick = async () => {
+  try {
+    const r = await api(`/cases/${held.case_id}/return-to-sender`, {});
+    note(`Вернули ${money(r.amount)} на счёт, с которого они пришли. Вы ничего не нарушили.`, 'ok');
+  } catch (e) { note(e.message, 'err'); }
+  $('overlay').classList.remove('show'); $('amount').value = ''; load();
+};
+$('insist').onclick = async () => {
+  try {
+    await api(`/cases/${held.case_id}/insist`, {});
+    note('Перевод остаётся на паузе. Его проверит сотрудник банка, статус появится здесь.', 'err');
+  } catch (e) { note(e.message, 'err'); }
+  $('overlay').classList.remove('show'); load();
+};
+$('who').onchange = () => { me = +$('who').value; note(''); load(); };
+
+(async () => {
+  people = await api('/demo/clients');
+  $('who').innerHTML = people.map(p => `<option value="${p.id}">${p.name}</option>`).join('');
+  me = people[0].id; load();
+})();
+</script>
+</body>
+</html>
