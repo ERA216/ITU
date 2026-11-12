@@ -40,6 +40,19 @@
   .sheet ul { padding-left:20px; margin:10px 0; }
   .sheet li { margin:6px 0; }
   .law { background:var(--warn-bg); border-radius:12px; padding:12px; font-size:14px; margin:12px 0; }
+  .blocked h2 { color:var(--warn); font-size:18px; }
+  .status { display:inline-block; font-size:13px; font-weight:600; padding:4px 10px; border-radius:99px;
+            background:var(--warn-bg); color:var(--warn); margin-bottom:10px; }
+  .status.review { background:#fff4d6; color:#7a5200; }
+  .status.done { background:var(--ok-bg); color:var(--ok); }
+  .doc { border:1px solid var(--line); border-radius:12px; padding:10px 12px; margin-top:8px; font-size:14px; }
+  .doc b { display:block; font-weight:600; }
+  .doc input { border:0; padding:6px 0 0; }
+  .doc .have { color:var(--ok); }
+  textarea { width:100%; min-height:96px; padding:10px 12px; border:1px solid var(--line); border-radius:10px; font:inherit; resize:vertical; }
+  details { margin-top:10px; font-size:14px; }
+  summary { cursor:pointer; color:var(--muted); }
+  [hidden] { display:none !important; }
 </style>
 </head>
 <body>
@@ -51,7 +64,9 @@
     <div class="balance" id="balance">…</div>
   </div>
 
-  <div class="card">
+  <div class="card blocked" id="blockCard" hidden></div>
+
+  <div class="card" id="transferCard">
     <h2>Перевод</h2>
     <label for="to">Кому</label>
     <select id="to"></select>
@@ -81,7 +96,7 @@
 <script>
 const $ = id => document.getElementById(id);
 const money = n => Number(n).toLocaleString('ru-RU') + ' ₸';
-let people = [], me = null, held = null;
+let people = [], me = null, held = null, appeal = null;
 
 async function api(path, body) {
   const r = await fetch(path, body ? {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)} : {});
@@ -91,9 +106,53 @@ async function api(path, body) {
 }
 function note(text, kind) { $('note').innerHTML = text ? `<div class="note ${kind}">${text}</div>` : ''; }
 
+const esc = s => String(s).replace(/[&<>"]/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[ch]));
+
+async function loadBlock() {
+  appeal = await api(`/clients/${me}/case`);
+  const cls = {under_review:'review', unblocked:'done'}[appeal.status] || '';
+  let html = `<span class="status ${cls}">${esc(appeal.status_text)}</span>
+    <h2>Операции по счёту приостановлены</h2>
+    <p>${esc(appeal.summary)}</p>
+    <details><summary>Что именно заметила система</summary><ul>${appeal.reasons.map(r => `<li>${esc(r.text)}</li>`).join('')}</ul></details>`;
+  if (appeal.can_submit) {
+    html += `<h2 style="color:inherit;margin-top:16px">Что нужно от вас</h2>
+      <label for="expl">Опишите своими словами, что произошло</label>
+      <textarea id="expl" placeholder="Кто прислал деньги, о чём просил, почему вы перевели их дальше"></textarea>` +
+      appeal.required.map(d => `<div class="doc"><b>${esc(d.title)}${d.required ? '' : ' (если есть)'}</b>
+        ${d.uploaded ? '<span class="have">Загружено: ' + appeal.documents.filter(x => x.kind === d.kind).map(x => esc(x.filename)).join(', ') + '</span>' : ''}
+        <input type="file" data-kind="${d.kind}" aria-label="${esc(d.title)}"></div>`).join('') +
+      `<button class="primary" id="submitAppeal">Отправить на рассмотрение</button>`;
+  } else {
+    html += `<p class="muted">Вы отправили: ${appeal.documents.map(d => esc(d.filename)).join(', ')}.</p>`;
+  }
+  html += `<div id="blockNote"></div>
+    <p class="muted">Банк рассматривает свою часть. Если сведения о вас есть в базе Антифрод-центра, исключить их могут только правоохранительные органы.</p>`;
+  $('blockCard').innerHTML = html;
+  const bnote = (t, k) => $('blockCard').querySelector('#blockNote').innerHTML = `<div class="note ${k}">${esc(t)}</div>`;
+  $('blockCard').querySelectorAll('input[type=file]').forEach(inp => inp.onchange = async () => {
+    const f = inp.files[0]; if (!f) return;
+    const text = $('expl').value;
+    try {
+      const b64 = await new Promise((ok, bad) => { const r = new FileReader();
+        r.onload = () => ok(r.result.split(',')[1]); r.onerror = bad; r.readAsDataURL(f); });
+      await api(`/cases/${appeal.case_id}/documents`, {kind: inp.dataset.kind, filename: f.name, content_base64: b64});
+      await loadBlock(); $('expl').value = text;
+    } catch (e) { bnote(e.message, 'err'); }
+  });
+  const btn = $('blockCard').querySelector('#submitAppeal');
+  if (btn) btn.onclick = async () => {
+    try { await api(`/cases/${appeal.case_id}/submit`, {explanation: $('expl').value}); await loadBlock(); }
+    catch (e) { bnote(e.message, 'err'); }
+  };
+}
+
 async function load() {
   const c = await api('/clients/' + me);
   $('balance').textContent = money(c.balance);
+  const blocked = c.status === 'blocked';
+  $('blockCard').hidden = !blocked; $('transferCard').hidden = blocked;
+  if (blocked) await loadBlock();
   $('to').innerHTML = people.filter(p => p.id !== me).map(p => `<option value="${p.id}">${p.name}</option>`).join('');
   const status = {held:'на паузе', cancelled:'отменён'};
   $('feed').innerHTML = c.feed.map(t => {
