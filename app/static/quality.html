@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Чистый счёт: качество движка</title>
+<style>
+  :root { --bg:#f3f5f4; --card:#fff; --ink:#14201b; --ink2:#3d4a44; --muted:#66736d; --line:#e2e7e4; --grid:#eef1ef;
+          --brand:#0b6b4f; --band:rgba(11,107,79,.12); --mark:#14201b; --warn:#b3261e; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--ink); font:15px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  header { flex-wrap:wrap; }
+  header { display:flex; justify-content:space-between; align-items:center; gap:12px; padding:14px 16px; background:#fff; border-bottom:1px solid var(--line); }
+  header b { color:var(--brand); font-size:17px; }
+  header a { color:var(--muted); font-size:14px; margin-left:12px; }
+  main { max-width:980px; margin:0 auto; padding:16px; }
+  h1 { font-size:22px; margin:6px 0 4px; }
+  h2 { font-size:16px; margin:0 0 2px; }
+  .lead { color:var(--ink2); margin:0 0 16px; max-width:760px; }
+  .muted { color:var(--muted); font-size:13px; }
+  .card { background:var(--card); border-radius:14px; padding:16px; margin-bottom:14px; }
+  .tiles { display:grid; grid-template-columns:repeat(3, 1fr); gap:12px; margin-bottom:14px; }
+  @media (max-width:720px) { .tiles { grid-template-columns:1fr; } }
+  .tile { background:var(--card); border-radius:14px; padding:14px 16px; }
+  .tile .label { color:var(--muted); font-size:13px; }
+  .tile .value { font-size:28px; font-weight:650; font-variant-numeric:tabular-nums; line-height:1.2; }
+  .tile .range { color:var(--ink2); font-size:13px; }
+  .chart { position:relative; }
+  svg { display:block; overflow:visible; }
+  .scroll { overflow-x:auto; }
+  .axis text, .note text { fill:var(--muted); font-size:12px; font-variant-numeric:tabular-nums; }
+  .tip { position:absolute; pointer-events:none; background:var(--ink); color:#fff; font-size:13px; padding:6px 9px;
+         border-radius:8px; white-space:nowrap; transform:translate(-50%, -100%); display:none; }
+  table { width:100%; border-collapse:collapse; font-size:14px; }
+  th, td { text-align:left; padding:8px 6px; border-top:1px solid var(--line); vertical-align:middle; }
+  th { color:var(--muted); font-weight:600; font-size:13px; border-top:0; }
+  td.num, th.num { text-align:right; font-variant-numeric:tabular-nums; white-space:nowrap; }
+  .barcell { width:34%; }
+  .bar { height:10px; border-radius:0 4px 4px 0; background:var(--brand); min-width:1px; }
+  .bar.honest { background:#8a958f; }
+  .group { color:var(--muted); font-size:12px; }
+  details { margin-top:8px; }
+  summary { cursor:pointer; color:var(--muted); font-size:13px; }
+  ul.notes { padding-left:18px; margin:6px 0 0; color:var(--ink2); }
+  ul.notes li { margin:4px 0; }
+</style>
+</head>
+<body>
+<header><b>Чистый счёт · качество движка</b><span><a href="/">Экран клиента</a><a href="/analyst">Панель аналитика</a></span></header>
+<main>
+  <h1 id="title">Качество движка перехвата</h1>
+  <p class="lead" id="lead">Загружаем результаты…</p>
+
+  <div class="tiles" id="tiles"></div>
+
+  <div class="card">
+    <h2>Чем выше порог, тем меньше ложных остановок и тем больше пропущенных схем</h2>
+    <p class="muted" id="sub"></p>
+    <div class="chart" id="c1"></div>
+    <div class="chart" id="c2" style="margin-top:6px"></div>
+    <details><summary>Показать таблицей</summary><div id="curveTable"></div></details>
+  </div>
+
+  <div class="card">
+    <h2 id="scenTitle">Что именно останавливает движок</h2>
+    <p class="muted">Сумма по всем наборам данных. Строки «Схема» — хорошо, когда остановлено всё; строки «Честный» — хорошо, когда почти ничего.</p>
+    <div id="scen"></div>
+  </div>
+
+  <div class="card">
+    <h2>Как читать эти цифры</h2>
+    <ul class="notes">
+      <li>Данные синтетические, и их придумал тот же автор, что и правила. Цифры показывают, что движок работает как задумано и как он ведёт себя при разных порогах, но не предсказывают результат на данных банка.</li>
+      <li>Каждый набор данных создаётся заново со своим зерном случайности, поэтому показано не одно удачное число, а разброс.</li>
+      <li>Ложная остановка не блокирует счёт: клиент видит объяснение и может вернуть деньги отправителю или настоять на переводе, тогда его проверит сотрудник банка.</li>
+      <li>Порог — настройка банка: его можно поднять, если ложных остановок слишком много, или опустить, если важнее не пропустить схему.</li>
+    </ul>
+  </div>
+</main>
+<script>
+const $ = id => document.getElementById(id);
+const esc = s => String(s ?? '').replace(/[&<>"]/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[ch]));
+const pct = (v, d = 0) => v.toLocaleString('ru-RU', {minimumFractionDigits: d, maximumFractionDigits: d}) + '%';
+const NS = 'http://www.w3.org/2000/svg';
+const el = (tag, attrs = {}, parent) => { const n = document.createElementNS(NS, tag); for (const [k, v] of Object.entries(attrs)) n.setAttribute(k, v); if (parent) parent.appendChild(n); return n; };
+
+// Два графика с общей осью порога вместо одного с двумя шкалами: величины отличаются в сотню раз.
+function lineChart(host, data, key, opts) {
+  host.innerHTML = '';
+  // Ширина в пикселях экрана: подписи остаются 12px и на телефоне, а не сжимаются вместе с графиком.
+  const W = Math.max(300, host.clientWidth), H = opts.height, m = {l: 40, r: 12, t: 26, b: opts.xaxis ? 42 : 12};
+  const xs = data.map(d => d.threshold), x0 = Math.min(...xs), x1 = Math.max(...xs);
+  const X = v => m.l + (v - x0) / (x1 - x0) * (W - m.l - m.r);
+  const Y = v => m.t + (1 - v / opts.max) * (H - m.t - m.b);
+  const svg = el('svg', {viewBox: `0 0 ${W} ${H}`, role: 'img', 'aria-label': opts.label});
+  el('text', {x: m.l, y: 12, 'font-size': 13, 'font-weight': 600, fill: 'var(--ink)'}, svg).textContent = opts.label;
+  const axis = el('g', {class: 'axis'}, svg);
+  for (const t of opts.ticks) {
+    el('line', {x1: m.l, x2: W - m.r, y1: Y(t), y2: Y(t), stroke: 'var(--grid)', 'stroke-width': 1}, axis);
+    el('text', {x: m.l - 8, y: Y(t) + 4, 'text-anchor': 'end'}, axis).textContent = opts.fmt(t);
+  }
+  if (opts.xaxis) {
+    const step = W < 520 ? 20 : 10;
+    for (const t of xs.filter(v => (v - x0) % step === 0))
+      el('text', {x: X(t), y: H - m.b + 16, 'text-anchor': 'middle'}, axis).textContent = t;
+    el('text', {x: (m.l + W - m.r) / 2, y: H - 4, 'text-anchor': 'middle'}, axis).textContent = 'Порог остановки, баллов';
+  }
+  const cur = X(opts.current);
+  el('line', {x1: cur, x2: cur, y1: m.t - 6, y2: H - m.b, stroke: 'var(--mark)', 'stroke-width': 1}, svg);
+  if (opts.markLabel) el('text', {x: cur + 6, y: m.t + 4, 'font-size': 12, fill: 'var(--ink2)'}, svg).textContent = opts.markLabel;
+  svg.setAttribute('width', W); svg.setAttribute('height', H);
+  const band = data.map(d => `${X(d.threshold)},${Y(d[key][2])}`).concat(data.slice().reverse().map(d => `${X(d.threshold)},${Y(d[key][0])}`));
+  el('polygon', {points: band.join(' '), fill: 'var(--band)'}, svg);
+  el('polyline', {points: data.map(d => `${X(d.threshold)},${Y(d[key][1])}`).join(' '), fill: 'none',
+                  stroke: 'var(--brand)', 'stroke-width': 2, 'stroke-linejoin': 'round', 'stroke-linecap': 'round'}, svg);
+  const now = data.find(d => d.threshold === opts.current);
+  el('circle', {cx: cur, cy: Y(now[key][1]), r: 5, fill: 'var(--brand)', stroke: '#fff', 'stroke-width': 2}, svg);
+  el('text', {x: cur - 8, y: Y(now[key][1]) - 10, 'text-anchor': 'end', 'font-size': 13, 'font-weight': 600, fill: 'var(--ink)'}, svg)
+    .textContent = opts.fmt(now[key][1], true);
+  // Перекрестие и подсказка: ближайший порог под курсором.
+  const hair = el('line', {y1: m.t - 6, y2: H - m.b, stroke: 'var(--muted)', 'stroke-width': 1, visibility: 'hidden'}, svg);
+  const dot = el('circle', {r: 5, fill: 'var(--brand)', stroke: '#fff', 'stroke-width': 2, visibility: 'hidden'}, svg);
+  const hit = el('rect', {x: m.l, y: 0, width: W - m.l - m.r, height: H, fill: 'transparent'}, svg);
+  const tip = document.createElement('div'); tip.className = 'tip';
+  host.append(svg, tip);
+  const show = evt => {
+    const box = svg.getBoundingClientRect(), k = 1;
+    const vx = evt.clientX - box.left;
+    const d = data.reduce((a, b) => Math.abs(X(b.threshold) - vx) < Math.abs(X(a.threshold) - vx) ? b : a);
+    for (const n of [hair]) { n.setAttribute('x1', X(d.threshold)); n.setAttribute('x2', X(d.threshold)); n.setAttribute('visibility', 'visible'); }
+    dot.setAttribute('cx', X(d.threshold)); dot.setAttribute('cy', Y(d[key][1])); dot.setAttribute('visibility', 'visible');
+    tip.innerHTML = `Порог ${d.threshold}: <b>${opts.fmt(d[key][1], true)}</b> (от ${opts.fmt(d[key][0], true)} до ${opts.fmt(d[key][2], true)})`;
+    tip.style.display = 'block';
+    const half = tip.offsetWidth / 2;   // подсказка не выходит за края карточки
+    tip.style.left = Math.min(Math.max(X(d.threshold), half), W - half) + 'px';
+    tip.style.top = (Y(d[key][1]) - 10) + 'px';
+  };
+  hit.addEventListener('pointermove', show);
+  hit.addEventListener('pointerleave', () => { hair.setAttribute('visibility', 'hidden'); dot.setAttribute('visibility', 'hidden'); tip.style.display = 'none'; });
+}
+
+let drawCharts = () => {};
+let resizeTimer;
+addEventListener('resize', () => { clearTimeout(resizeTimer); resizeTimer = setTimeout(() => drawCharts(), 150); });
+
+fetch('/quality.json').then(r => r.json()).then(q => {
+  const cur = q.curve.find(c => c.threshold === q.threshold);
+  $('lead').textContent = `Движок проверен на ${q.seeds} наборах синтетических данных, в каждом около ${q.transfers_per_seed.toLocaleString('ru-RU')} оценённых переводов. Сейчас перевод останавливается при оценке от ${q.threshold} баллов.`;
+  const tile = (label, value, range) => `<div class="tile"><div class="label">${label}</div><div class="value">${value}</div><div class="range">${range}</div></div>`;
+  $('tiles').innerHTML =
+    tile('Ловит переводов дропперам', pct(cur.recall[1]), `от ${pct(cur.recall[0])} до ${pct(cur.recall[2])} по наборам`) +
+    tile('Зря останавливает честных переводов', pct(cur.false_rate[1], 2), `от ${pct(cur.false_rate[0], 2)} до ${pct(cur.false_rate[2], 2)}`) +
+    tile('Среди всех остановок настоящих схем', pct(cur.precision[1]), `от ${pct(cur.precision[0])} до ${pct(cur.precision[2])}; остальное — лишний экран для честного клиента`);
+  $('sub').textContent = 'Линия — среднее по наборам данных, заливка — разброс от худшего до лучшего. Вертикальная черта — текущий порог.';
+  drawCharts = () => {
+  lineChart($('c1'), q.curve, 'recall', {label: 'Ловит переводов дропперам, %', height: 220, max: 100, ticks: [0, 25, 50, 75, 100],
+    fmt: (v, p) => p ? pct(v) : v, current: q.threshold, markLabel: `Текущий порог: ${q.threshold}`});
+  const fmax = Math.ceil(Math.max(...q.curve.map(c => c.false_rate[2])) / 5) * 5;
+  lineChart($('c2'), q.curve, 'false_rate', {label: 'Зря останавливает честных переводов, %', height: 220, max: fmax,
+    ticks: [0, fmax / 3, 2 * fmax / 3, fmax].map(v => Math.round(v)), fmt: (v, p) => p ? pct(v, 2) : v,
+    current: q.threshold, xaxis: true});
+  };
+  drawCharts();
+  $('curveTable').innerHTML = `<div class="scroll"><table><tr><th class="num">Порог</th><th class="num">Ловит схем</th><th class="num">Зря останавливает</th><th class="num">Настоящих среди остановок</th></tr>` +
+    q.curve.map(c => `<tr><td class="num">${c.threshold}${c.threshold === q.threshold ? ' (сейчас)' : ''}</td><td class="num">${pct(c.recall[1], 1)}</td><td class="num">${pct(c.false_rate[1], 2)}</td><td class="num">${pct(c.precision[1], 1)}</td></tr>`).join('') + '</table></div>';
+  $('scenTitle').textContent = `Что именно останавливает движок при пороге ${q.threshold}`;
+  $('scen').innerHTML = '<table><tr><th>Ситуация</th><th class="num">Остановлено</th><th class="barcell"></th></tr>' +
+    q.by_scenario.map(s => {
+      const share = 100 * s.stopped / s.total;
+      return `<tr><td><span class="group">${esc(s.group)}</span><br>${esc(s.title)}</td>
+        <td class="num">${s.stopped.toLocaleString('ru-RU')} из ${s.total.toLocaleString('ru-RU')}<br><span class="muted">${pct(share, share < 1 ? 2 : 0)}</span></td>
+        <td class="barcell"><div class="bar ${s.group === 'Честный' ? 'honest' : ''}" style="width:${Math.max(share, 0.3)}%"></div></td></tr>`;
+    }).join('') + '</table>';
+}).catch(() => { $('lead').textContent = 'Нет файла с результатами. Запустите: python -m app.quality'; });
+</script>
+</body>
+</html>
