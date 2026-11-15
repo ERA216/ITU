@@ -19,12 +19,14 @@ CREATE TABLE IF NOT EXISTS transfers (
     receiver_id INTEGER NOT NULL REFERENCES clients(id),
     amount INTEGER NOT NULL,
     created_at TEXT NOT NULL,
-    status TEXT NOT NULL DEFAULT 'done',        -- done | held | cancelled
+    status TEXT NOT NULL DEFAULT 'done',        -- done | held | pending (период охлаждения) | cancelled
     return_of INTEGER REFERENCES transfers(id), -- если это безопасный возврат
-    scenario TEXT                                -- метка синтетики
+    scenario TEXT,                               -- метка синтетики
+    release_at TEXT                              -- когда уйдёт перевод в периоде охлаждения
 );
 CREATE INDEX IF NOT EXISTS ix_tr_sender ON transfers(sender_id, created_at);
 CREATE INDEX IF NOT EXISTS ix_tr_receiver ON transfers(receiver_id, created_at);
+CREATE INDEX IF NOT EXISTS ix_tr_pending ON transfers(release_at) WHERE status='pending';
 CREATE TABLE IF NOT EXISTS cases (
     id INTEGER PRIMARY KEY,
     client_id INTEGER NOT NULL REFERENCES clients(id),
@@ -37,7 +39,72 @@ CREATE TABLE IF NOT EXISTS cases (
     explanation TEXT,                   -- объяснение клиента при апелляции
     decision_comment TEXT,              -- комментарий аналитика к решению
     decided_at TEXT,
+    complaint_id INTEGER,               -- жалоба, по которой возник случай (для всей цепочки)
+    hop INTEGER,                        -- звено цепочки: 1 — получил деньги от пострадавшего
+    submitted_at TEXT,                  -- когда клиент отправил апелляцию
+    due_at TEXT,                        -- до какого момента банк обещал ответить
+    guardian_id INTEGER REFERENCES clients(id),  -- доверенное лицо, которому сообщили об остановке
+    guardian_state TEXT,                -- notified | asked (клиент настаивает) | confirmed | cancelled
     created_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS complaints (
+    id INTEGER PRIMARY KEY,
+    transfer_id INTEGER NOT NULL UNIQUE REFERENCES transfers(id),  -- перевод, на который пожаловались
+    complainant_id INTEGER NOT NULL REFERENCES clients(id),
+    outcome TEXT NOT NULL,              -- blocked | warned | already_returned
+    case_id INTEGER REFERENCES cases(id),
+    created_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS incoming_marks (
+    transfer_id INTEGER PRIMARY KEY REFERENCES transfers(id),   -- клиент сказал, что знает отправителя
+    created_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS events (
+    id INTEGER PRIMARY KEY,
+    at TEXT NOT NULL,
+    actor TEXT NOT NULL,                -- client:<id> | analyst | system
+    action TEXT NOT NULL,
+    case_id INTEGER REFERENCES cases(id),
+    transfer_id INTEGER REFERENCES transfers(id),
+    details TEXT                        -- JSON
+);
+CREATE INDEX IF NOT EXISTS ix_events_case ON events(case_id, id);
+CREATE TABLE IF NOT EXISTS afc_list (
+    client_id INTEGER PRIMARY KEY REFERENCES clients(id),  -- счёт в базе Антифрод-центра (в демо — имитация)
+    list TEXT NOT NULL,                 -- grey: подозрительный | black: подтверждённый мошенник
+    added_at TEXT NOT NULL,
+    note TEXT
+);
+CREATE TABLE IF NOT EXISTS call_signals (
+    client_id INTEGER PRIMARY KEY REFERENCES clients(id),  -- сигнал оператора: клиенту звонят с подозрительного номера
+    number TEXT NOT NULL,
+    started_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS guardians (
+    client_id INTEGER PRIMARY KEY REFERENCES clients(id),  -- кого защищают
+    guardian_id INTEGER NOT NULL REFERENCES clients(id),   -- доверенное лицо
+    added_at TEXT NOT NULL,
+    remove_at TEXT                      -- отключение вступает в силу не сразу: мошенник не уговорит снять защиту
+);
+CREATE TABLE IF NOT EXISTS clearances (
+    id INTEGER PRIMARY KEY,             -- справка о снятии ограничений
+    case_id INTEGER NOT NULL REFERENCES cases(id),
+    client_id INTEGER NOT NULL REFERENCES clients(id),
+    code TEXT NOT NULL UNIQUE,          -- код проверки подлинности
+    issued_at TEXT NOT NULL,
+    revoked_at TEXT                     -- если счёт снова приостановили
+);
+CREATE TABLE IF NOT EXISTS recruit_marks (
+    client_id INTEGER PRIMARY KEY REFERENCES clients(id),  -- клиент ответил на предупреждение о вербовке
+    action TEXT NOT NULL,               -- dismissed: «это мои покупатели или знакомые»
+    at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS message_checks (
+    id INTEGER PRIMARY KEY,             -- проверка подозрительного сообщения; сам текст не хранится
+    client_id INTEGER NOT NULL REFERENCES clients(id),
+    scheme TEXT,                        -- mistaken | safe_account | investment | job | NULL
+    verdict TEXT NOT NULL,              -- danger | caution | none
+    at TEXT NOT NULL
 );
 CREATE TABLE IF NOT EXISTS meta (
     key TEXT PRIMARY KEY,
@@ -56,8 +123,19 @@ CREATE TABLE IF NOT EXISTS documents (
 """
 
 
+SCHEMA_VERSION = 8
+
+
 def connect(path: str | None = None) -> sqlite3.Connection:
     conn = sqlite3.connect(path or DB_PATH, check_same_thread=False)
     conn.row_factory = sqlite3.Row
-    conn.executescript(SCHEMA)
+    version = conn.execute("PRAGMA user_version").fetchone()[0]
+    if version != SCHEMA_VERSION:
+        # Демо-база от старой версии кода: проще пересоздать, данные заполнятся заново.
+        tables = [r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")]
+        for t in tables:
+            conn.execute(f'DROP TABLE IF EXISTS "{t}"')
+        conn.executescript(SCHEMA)
+        conn.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
+        conn.commit()
     return conn
