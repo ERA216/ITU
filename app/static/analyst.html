@@ -49,11 +49,27 @@
   .login input { width:100%; padding:10px 12px; border:1px solid var(--line); border-radius:10px; font:inherit; margin-top:4px; }
   .hbtn { border:1px solid var(--line); background:#fff; border-radius:8px; padding:5px 10px; font:inherit; font-size:13px; cursor:pointer; color:var(--muted); }
   [hidden] { display:none !important; }
+  .pill.late { background:var(--warn); color:#fff; }
+  .tabs { display:flex; gap:2px; background:var(--line); border-radius:10px; padding:3px; margin-bottom:10px; }
+  .tabs button { flex:1; border:0; background:none; border-radius:8px; padding:6px 4px; font:inherit; font-size:13px; color:var(--muted); cursor:pointer; }
+  .tabs button[aria-selected="true"] { background:#fff; color:var(--ink); font-weight:600; }
+  .card.linked { border:2px solid var(--warn-bg); }
+  header a { margin-left:10px; }
+  ol.hops { list-style:none; padding:0; margin:8px 0 0; }
+  ol.hops li { display:grid; grid-template-columns:110px 1fr; column-gap:10px; padding:7px 0; border-top:1px solid var(--line); }
+  ol.hops li:first-child { border-top:0; }
+  ol.hops li.cur { background:var(--ok-bg); border-radius:8px; padding-left:8px; }
+  ol.hops .muted { grid-column:2; }
+  .hopn { color:var(--muted); font-size:13px; grid-row:span 2; }
+  .linkbtn { border:0; background:none; padding:0; font:inherit; font-weight:600; color:var(--brand); text-decoration:underline; cursor:pointer; text-align:left; }
+  .timeline { margin:6px 0 0; padding:0; list-style:none; }
+  .timeline li { display:grid; grid-template-columns:118px 1fr; gap:10px; }
+  .timeline .who { color:var(--muted); font-size:13px; }
 </style>
 </head>
 <body>
 <header><b>Чистый счёт · панель аналитика</b>
-  <span><button class="hbtn" id="reset" hidden>Сбросить демо</button> <button class="hbtn" id="logout" hidden>Выйти</button> <a href="/">Экран клиента</a></span></header>
+  <span><button class="hbtn" id="reset" hidden>Сбросить демо</button> <button class="hbtn" id="logout" hidden>Выйти</button> <a href="/analyst/stats">Эффективность</a> <a href="/">Экран клиента</a></span></header>
 <form class="card login" id="login" hidden>
   <h2>Вход для сотрудника банка</h2>
   <label for="pin" class="muted">Код доступа</label>
@@ -62,7 +78,12 @@
   <div id="loginErr"></div>
 </form>
 <div class="wrap" id="wrap" hidden>
-  <div><h2 id="queueTitle">Очередь</h2><div id="queue"></div></div>
+  <div>
+    <div class="tabs" role="tablist">
+      <button data-tab="pending" aria-selected="true">Ждут решения</button><button data-tab="all">Все</button><button data-tab="linked">Связанные счета</button>
+    </div>
+    <h2 id="queueTitle">Очередь</h2><div id="queue"></div>
+  </div>
   <div id="detail"><div class="card muted">Выберите случай слева.</div></div>
 </div>
 <script>
@@ -71,6 +92,8 @@ const esc = s => String(s ?? '').replace(/[&<>"]/g, ch => ({'&':'&amp;','<':'&lt
 const money = n => Number(n).toLocaleString('ru-RU') + ' ₸';
 const when = s => s.replace('T', ' ').slice(0, 16);
 const KIND = {block: 'Блокировка счёта', intercept: 'Перевод на паузе'};
+const GUARD = {notified: 'узнал(а) об остановке', asked: 'клиент настаивает, ждём подтверждения',
+               confirmed: 'подтвердил(а) перевод, решение за сотрудником', cancelled: 'отменил(а) перевод'};
 let current = null;
 
 async function api(path, body) {
@@ -86,18 +109,50 @@ function gap(a, b) {
 }
 function days(s) { return Math.floor((Date.now() - new Date(s)) / 86400000); }
 
+let tab = 'pending';
+document.querySelectorAll('[data-tab]').forEach(b => b.onclick = () => {
+  tab = b.dataset.tab;
+  document.querySelectorAll('[data-tab]').forEach(x => x.setAttribute('aria-selected', String(x === b)));
+  loadQueue();
+});
+
 async function loadQueue() {
-  const q = await api('/analyst/cases');
-  const waiting = q.filter(c => c.needs_decision).length;
-  $('queueTitle').textContent = `Очередь: ждут решения ${waiting} из ${q.length}`;
+  if (tab === 'linked') return loadLinked();
+  const all = await api('/analyst/cases');
+  const waiting = all.filter(c => c.needs_decision);
+  const q = tab === 'pending' ? waiting : all;
+  $('queueTitle').textContent = tab === 'pending' ? `Ждут решения: ${waiting.length}` : `Все случаи: ${all.length}`;
   $('queue').innerHTML = q.map(c => `<button class="item ${c.case_id === current ? 'sel' : ''}" data-id="${c.case_id}">
       <b>${esc(c.client)}</b>
       <span class="muted">${KIND[c.kind]} · ${when(c.created_at)}</span><br>
       <span class="pill ${c.role.verdict}">${esc(c.role.label)}</span>
       <span class="pill ${c.needs_decision ? 'wait' : ''}">${esc(c.status_text)}</span>
-    </button>`).join('') || '<div class="card muted">Случаев нет.</div>';
+      ${c.overdue ? '<span class="pill late">Срок ответа прошёл</span>' : ''}
+      ${c.from_complaint ? '<span class="pill">По жалобе</span>' : ''}
+    </button>`).join('') || `<div class="card muted">${tab === 'pending' ? 'Все случаи разобраны.' : 'Случаев нет.'}</div>`;
   $('queue').querySelectorAll('.item').forEach(b => b.onclick = () => open(+b.dataset.id));
 }
+
+// Счета, которые всплывают в нескольких независимых случаях: вероятные дропперы и организаторы.
+async function loadLinked() {
+  const L = await api('/analyst/linked');
+  $('queueTitle').textContent = `Связанные счета: ${L.length}`;
+  $('queue').innerHTML = (L.length ? '<p class="muted" style="margin:0 0 8px">Одна карта у разных клиентов в разных случаях. Невольные участники друг друга не знают, а «карта для возврата» у мошенника одна на многих.</p>' : '') +
+    L.map(a => `<div class="item" style="cursor:default">
+      <b>${esc(a.name)}</b>
+      <span class="muted">${a.sources} разных клиентов · ${a.cases.length} случаев · ${money(a.amount)} · счёту ${days(a.opened)} дн.</span><br>
+      ${a.status === 'blocked' ? '<span class="pill organizer">Счёт приостановлен</span>'
+        : `<button class="act reject" style="margin-top:6px;padding:7px 10px" data-suspend="${a.client_id}">Приостановить счёт</button>`}
+      <div class="muted" style="margin-top:4px">Случаи: ${a.cases.slice(-4).reverse().map(id => `<button class="linkbtn" data-open="${id}">№${id}</button>`).join(', ')}${a.cases.length > 4 ? ` и ещё ${a.cases.length - 4}` : ''}</div>
+    </div>`).join('') || '<div class="card muted">Связанных счетов нет.</div>';
+  $('queue').querySelectorAll('[data-open]').forEach(b => b.onclick = () => open(+b.dataset.open));
+  $('queue').querySelectorAll('[data-suspend]').forEach(b => b.onclick = async () => {
+    b.disabled = true;
+    try { const c = await api(`/analyst/accounts/${b.dataset.suspend}/suspend`, {}); await loadLinked(); open(c.case_id); }
+    catch (e) { b.disabled = false; alertBox(e.message); }
+  });
+}
+function alertBox(text) { $('detail').insertAdjacentHTML('afterbegin', `<div class="note">${esc(text)}</div>`); }
 
 async function open(id) {
   current = id;
@@ -109,23 +164,43 @@ async function open(id) {
     <div class="card">
       <h2 style="font-size:19px">${esc(c.client)}</h2>
       <div class="muted">${KIND[c.kind]} · случай №${c.case_id} · счёт открыт ${days(c.account_opened_at)} дн. назад</div>
-      <p><span class="pill ${c.role.verdict}" style="font-size:14px;padding:4px 12px">${esc(c.role.label)}</span></p>
+      <p><span class="pill ${c.role.verdict}" style="font-size:14px;padding:4px 12px">${esc(c.role.label)}</span>
+        ${c.overdue ? '<span class="pill late" style="font-size:14px;padding:4px 12px">Срок ответа прошёл</span>' : ''}</p>
+      ${c.due_at && c.needs_decision ? `<div class="muted">Клиенту обещан ответ до ${when(c.due_at)}</div>` : ''}
       <div class="muted">Это подсказка по правилам ниже. Решение принимает сотрудник.</div>
     </div>
     <div class="card">
       <h2>Цепочка переводов</h2>
       <div class="chain">
-        <div class="node"><span class="muted">Отправитель</span><b>${esc(c.incoming.sender)}</b></div>
-        <div class="arrow"><strong>${money(c.incoming.amount)} →</strong>${when(c.incoming.created_at)}</div>
-        <div class="node"><span class="muted">Клиент</span><b>${esc(c.client)}</b></div>
-        <div class="arrow"><strong>${money(c.outgoing.amount)} →</strong>${gap(c.incoming.created_at, c.outgoing.created_at)}</div>
-        <div class="node"><span class="muted">Получатель · счёту ${days(c.outgoing.receiver_opened)} дн.</span><b>${esc(c.outgoing.receiver)}</b></div>
+        ${c.incoming ? `<div class="node"><span class="muted">Отправитель</span><b>${esc(c.incoming.sender)}</b></div>
+        <div class="arrow"><strong>${money(c.incoming.amount)} →</strong>${when(c.incoming.created_at)}</div>` : ''}
+        <div class="node"><span class="muted">Клиент${c.incoming ? '' : ' · свои деньги'}</span><b>${esc(c.client)}</b></div>
+        ${c.outgoing ? `<div class="arrow"><strong>${money(c.outgoing.amount)} →</strong>${c.incoming ? gap(c.incoming.created_at, c.outgoing.created_at) : when(c.outgoing.created_at)}</div>
+        <div class="node"><span class="muted">Получатель · счёту ${days(c.outgoing.receiver_opened)} дн.</span><b>${esc(c.outgoing.receiver)}</b></div>`
+        : '<div class="arrow"><strong>Деньги остаются на счёте</strong>дальше не переводились</div>'}
       </div>
     </div>
+    ${c.linked ? `<div class="card linked"><h2>${c.linked.is_client ? 'Этот счёт' : 'Счёт получателя'} встречается в других случаях</h2>
+      <p><b>${esc(c.linked.name)}</b>: деньги от ${c.linked.sources} разных клиентов, ${money(c.linked.amount)}, счёту ${days(c.linked.opened)} дн.
+      ${c.linked.status === 'blocked' ? ' Счёт уже приостановлен.' : ''}</p>
+      ${c.linked.other_cases.length ? `<p class="muted">Другие случаи: ${c.linked.other_cases.map(o => `<button class="linkbtn" data-open="${o.id}">№${o.id} ${esc(o.name)}</button> (${esc(o.kind_text)})`).join(', ')}</p>` : ''}
+      ${c.linked.status !== 'blocked' ? `<button class="act reject" data-suspend-card="${c.linked.client_id}" style="max-width:280px">Приостановить счёт ${esc(c.linked.name)}</button>` : ''}
+    </div>` : ''}
+    ${c.guardian ? `<div class="card"><h2>Доверенное лицо клиента</h2>
+      <p><b>${esc(c.guardian.name)}</b> · ${esc(GUARD[c.guardian.state] || c.guardian.state)}</p></div>` : ''}
+    ${c.recruit_warned ? `<div class="card linked"><h2>Клиента предупреждали о вербовке</h2>
+      <p>До этого случая система показала клиенту предупреждение: деньги от нескольких незнакомцев. Клиент ответил, что это его покупатели или знакомые.</p></div>` : ''}
+    ${c.chain && c.chain.length ? `<div class="card"><h2>Цепочка по жалобе</h2>
+      <p class="muted">Все счета, приостановленные по одной жалобе. Нажмите на звено, чтобы открыть его случай.</p>
+      <ol class="hops">${c.chain.map(x => `<li class="${x.current ? 'cur' : ''}">
+        <span class="hopn">${x.hop === 0 ? 'Пострадавший' : 'Звено ' + x.hop}</span>
+        ${x.case_id && !x.current ? `<button class="linkbtn" data-open="${x.case_id}">${esc(x.name)}</button>` : `<b>${esc(x.name)}</b>`}
+        <span class="muted">${x.role === 'victim' ? 'перевёл ' : x.role === 'holder' ? 'деньги остались на счёте: ' : 'получил и переслал '}${money(x.amount)} · ${esc(x.status_text)}</span>
+      </li>`).join('')}</ol></div>` : ''}
     <div class="grid2">
       <div class="card"><h2>Роль клиента: что учтено</h2>
         <ul>${c.role.factors.map(f => `<li>${pts(f.points)}<span>${esc(f.text)}</span></li>`).join('')}</ul></div>
-      <div class="card"><h2>Почему сработал перехват: ${c.score} баллов</h2>
+      <div class="card"><h2>${c.kind === 'block' ? 'Основания для приостановки' : 'Почему сработал перехват'}: ${c.score} баллов</h2>
         <ul>${c.reasons.map(r => `<li><span class="pts">${r.points}</span><span>${esc(r.text)}</span></li>`).join('')}</ul></div>
     </div>
     <div class="card"><h2>Объяснение клиента</h2>
@@ -133,14 +208,39 @@ async function open(id) {
       ${c.documents.length ? '<h2 style="margin-top:12px">Документы</h2>' + c.documents.map(d =>
         `<div><a href="/documents/${d.id}" target="_blank" rel="noopener">${esc(d.filename)}</a> <span class="muted">${esc(d.title)}, ${Math.max(1, Math.round(d.size / 1024))} КБ</span></div>`).join('') : ''}
     </div>
+    <div class="card"><h2>История случая</h2>
+      <ul class="timeline">${(c.history || []).map(h => `<li><span class="muted">${when(h.at)}</span>
+        <span><b>${esc(h.text)}</b> <span class="who">· ${esc(h.who)}</span>
+        ${h.details.comment ? `<br><span class="muted">«${esc(h.details.comment)}»</span>` : ''}
+        ${h.details.role ? `<br><span class="muted">Подсказка системы в момент решения: ${esc(h.details.role)}</span>` : ''}
+        ${h.details.filename ? `<br><span class="muted">${esc(h.details.filename)}</span>` : ''}</span></li>`).join('') || '<li class="muted">Записей пока нет</li>'}</ul>
+    </div>
+    <div class="card"><h2>Антифрод-центр Нацбанка</h2>
+      <p class="muted">Сведения по случаю для передачи в Антифрод-центр: клиент, операции, признаки, цепочка, решение. Формат условный, технических данных (IP, геолокация, номера) в демо нет.</p>
+      <button class="act" id="report" style="background:var(--line);max-width:320px">Выгрузить сведения (JSON)</button>
+    </div>
     <div class="card"><h2>Решение</h2>
       ${c.needs_decision ? `
         <textarea id="comment" placeholder="Комментарий для клиента. При отказе обязателен."></textarea>
         <div class="actions"><button class="act approve" id="approve">${approve}</button><button class="act reject" id="reject">${reject}</button></div>
         <div id="err"></div>` : `
         <span class="pill">${esc(c.status_text)}</span> <span class="muted">${c.decided_at ? when(c.decided_at) : ''}</span>
-        ${c.decision_comment ? `<blockquote>${esc(c.decision_comment)}</blockquote>` : ''}`}
+        ${c.decision_comment ? `<blockquote>${esc(c.decision_comment)}</blockquote>` : ''}
+        ${c.certificate ? `<p class="muted">Справка № ${esc(c.certificate.number)} выдана ${when(c.certificate.issued_at)}${c.certificate.valid ? '' : ', отозвана ' + when(c.certificate.revoked_at)}. Проверка: <a href="/verify/${esc(c.certificate.code)}" target="_blank" rel="noopener">/verify/${esc(c.certificate.code)}</a></p>` : ''}`}
     </div>`;
+  $('detail').querySelectorAll('[data-open]').forEach(b => b.onclick = () => open(+b.dataset.open));
+  $('detail').querySelectorAll('[data-suspend-card]').forEach(b => b.onclick = async () => {
+    b.disabled = true;
+    try { const n = await api(`/analyst/accounts/${b.dataset.suspendCard}/suspend`, {}); open(n.case_id); }
+    catch (e) { b.disabled = false; alertBox(e.message); }
+  });
+  $('report').onclick = async () => {
+    const r = await fetch(`/analyst/cases/${id}/report`, {method: 'POST'});
+    if (!r.ok) return alertBox('Не удалось выгрузить сведения');
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(await r.blob()); a.download = `antifraud-case-${id}.json`; a.click();
+    URL.revokeObjectURL(a.href); open(id);
+  };
   if (c.needs_decision) for (const d of ['approve', 'reject']) $(d).onclick = async () => {
     try { await api(`/analyst/cases/${id}/decision`, {decision: d, comment: $('comment').value}); await open(id); }
     catch (e) { $('err').innerHTML = `<div class="note">${esc(e.message)}</div>`; }
