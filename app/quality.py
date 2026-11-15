@@ -78,6 +78,7 @@ if __name__ == "__main__":
     data = run()
     with open(OUT, "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, indent=1)
+        f.write("\n")
     cur = next(c for c in data["curve"] if c["threshold"] == data["threshold"])
     print(f"Наборов данных: {data['seeds']}, порог {data['threshold']}, {time.time() - started:.0f} с")
     print(f"Ловит схем: {cur['recall'][0]}–{cur['recall'][2]}% (в среднем {cur['recall'][1]}%)")
