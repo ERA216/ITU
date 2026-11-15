@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="ru">
+<html lang="ru" id="html">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -55,59 +55,310 @@
   [hidden] { display:none !important; }
   button.link { width:auto; padding:0 4px; background:none; color:var(--brand); font-weight:600; text-decoration:underline; }
   button:disabled { opacity:.6; }
+  .alert { background:#fff4d6; color:#5c3d00; border-radius:16px; padding:16px; margin-bottom:12px; }
+  .alert.hot { background:var(--warn-bg); color:var(--warn); }
+  .alert h2 { color:inherit; font-size:17px; }
+  .alert p { margin:6px 0; font-size:15px; }
+  .alert .actions { display:flex; gap:8px; flex-wrap:wrap; margin-top:10px; }
+  .alert .actions button { flex:1 1 150px; margin:0; }
+  .soft { background:rgba(0,0,0,.06); color:inherit; }
+  .tag.warn { background:#fff4d6; color:#7a5200; }
+  .confirm { margin-top:6px; font-size:14px; }
+  .confirm button { width:auto; padding:6px 10px; font-size:14px; margin-right:6px; }
+  .langs { display:flex; gap:2px; background:var(--line); border-radius:8px; padding:2px; }
+  .langs button { width:auto; padding:4px 8px; font-size:13px; border-radius:6px; background:none; color:var(--muted); }
+  .langs button[aria-pressed="true"] { background:#fff; color:var(--ink); }
+  .demo { border:1px dashed var(--line); border-radius:12px; padding:12px; margin-top:4px; }
+  .demo button { margin-top:6px; }
+  .alert.call { background:var(--warn); color:#fff; }
+  .top { display:flex; justify-content:space-between; align-items:center; gap:8px; margin:-4px 0 12px; }
+  .alert.guard { background:#e8eefc; color:#1b2f6b; }
+  .alert.recruit { background:var(--warn-bg); color:var(--warn); }
+  .alert ul { margin:6px 0; padding-left:20px; font-size:14px; }
+  .cert { background:var(--ok-bg); color:var(--ok); }
+  .cert h2 { color:inherit; }
+  a.btn { display:block; text-align:center; text-decoration:none; border-radius:12px; padding:12px 14px; font-weight:600;
+          background:var(--brand); color:#fff; margin-top:10px; }
+  .guardian select { margin-top:6px; }
+  .alert.cool { background:#fff4d6; color:#5c3d00; }
+  .msgres { border-radius:12px; padding:12px; margin-top:12px; font-size:15px; }
+  .msgres h3 { margin:0 0 6px; font-size:16px; }
+  .msgres.danger { background:var(--warn-bg); color:var(--warn); }
+  .msgres.caution { background:#fff4d6; color:#5c3d00; }
+  .msgres.none { background:var(--ok-bg); color:var(--ok); }
+  .msgres ol, .msgres ul { margin:6px 0; padding-left:20px; }
+  .msgres .hit { background:rgba(0,0,0,.08); border-radius:6px; padding:0 4px; }
+  .examples { display:flex; flex-wrap:wrap; gap:6px; }
+  .examples button { width:auto; padding:6px 10px; font-size:13px; margin:0; }
 </style>
 </head>
 <body>
 <div class="phone">
-  <header><b>Чистый счёт</b><select id="who" aria-label="Войти как"></select></header>
-  <p class="muted" style="margin:-4px 0 12px"><a href="/analyst" style="color:inherit">Панель аналитика банка</a></p>
+  <header><b data-t="app"></b><select id="who"></select></header>
+  <div class="top">
+    <a class="muted" href="/analyst" style="color:inherit" data-t="analystLink"></a>
+    <div class="langs" role="group" aria-label="Тіл / Язык">
+      <button data-lang="kk">ҚАЗ</button><button data-lang="ru">РУС</button>
+    </div>
+  </div>
 
   <div class="card">
-    <div class="muted">Доступно</div>
+    <div class="muted" data-t="available"></div>
     <div class="balance" id="balance">…</div>
     <div class="muted" id="heldLine"></div>
   </div>
 
+  <div id="callAlert"></div>
+  <div id="coolAlerts"></div>
+  <div id="guardAlerts"></div>
+  <div id="alerts"></div>
+  <div class="card cert" id="certCard" hidden></div>
+
   <div class="card blocked" id="blockCard" hidden></div>
 
   <div class="card" id="transferCard">
-    <h2>Перевод</h2>
-    <label for="to">Кому</label>
+    <h2 data-t="transferH"></h2>
+    <label for="to" data-t="to"></label>
     <select id="to"></select>
-    <label for="amount">Сумма, ₸</label>
+    <div id="recipientNote"></div>
+    <label for="amount" data-t="amount"></label>
     <input id="amount" type="number" min="1" step="1" inputmode="numeric" placeholder="0">
-    <button class="primary" id="send">Перевести</button>
+    <button class="primary" id="send" data-t="send"></button>
     <div id="note"></div>
   </div>
 
+  <div class="card" id="msgCard">
+    <h2 data-t="msgH"></h2>
+    <label for="msgText" data-t="msgLabel"></label>
+    <textarea id="msgText" maxlength="4000"></textarea>
+    <button class="primary" id="msgCheck" data-t="msgCheck"></button>
+    <div id="msgResult"></div>
+  </div>
+
   <div class="card">
-    <h2>Операции</h2>
+    <h2 data-t="opsH"></h2>
     <div id="feed"></div>
+  </div>
+
+  <div class="card guardian" id="guardianCard"></div>
+
+  <div class="demo">
+    <div class="muted" data-t="demoH"></div>
+    <button class="soft" id="callToggle"></button>
+    <div class="muted" style="margin-top:10px" data-t="demoMsgH"></div>
+    <div class="examples">
+      <button class="soft" data-example="mistaken" data-t="exMistaken"></button>
+      <button class="soft" data-example="safe" data-t="exSafe"></button>
+      <button class="soft" data-example="invest" data-t="exInvest"></button>
+      <button class="soft" data-example="job" data-t="exJob"></button>
+    </div>
   </div>
 </div>
 
 <div class="overlay" id="overlay" role="dialog" aria-modal="true" aria-labelledby="stopTitle">
   <div class="sheet">
-    <h2 id="stopTitle">Мы остановили этот перевод</h2>
-    <p>Похоже на схему «ошибочный перевод»: вам прислали чужие деньги и просят переслать их третьему лицу.</p>
+    <h2 id="stopTitle" data-t="stopTitle"></h2>
+    <p id="stopText"></p>
     <ul id="reasons"></ul>
-    <div class="law">Если переслать эти деньги дальше, вас могут посчитать дроппером: счёт заблокируют, а по статье 232-1 УК РК грозит до семи лет.</div>
+    <p id="stopGuardian" class="muted"></p>
+    <div class="law" id="law" data-t="law"></div>
     <button class="primary" id="ret"></button>
-    <button class="ghost" id="insist">Всё равно хочу перевести</button>
-    <button class="ghost" id="later">Решу позже: перевод останется на паузе</button>
+    <button class="primary" id="withdraw" data-t="withdraw"></button>
+    <button class="ghost" id="insist" data-t="insist"></button>
+    <button class="ghost" id="later" data-t="later"></button>
   </div>
 </div>
 
 <script>
+// Тексты экрана на русском и казахском. Казахский стоит вычитать носителю языка перед показом.
+const T = {
+  app: ['Чистый счёт', 'Таза шот'],
+  who: ['Войти как', 'Кім ретінде кіру'],
+  analystLink: ['Панель аналитика банка', 'Банк талдаушысының панелі'],
+  available: ['Доступно', 'Қолжетімді'],
+  heldLine: ['Ещё {m} на паузе до решения по остановленному переводу', 'Тағы {m} тоқтатылған аударым бойынша шешім шыққанша кідіртілген'],
+  transferH: ['Перевод', 'Аударым'],
+  to: ['Кому', 'Кімге'],
+  amount: ['Сумма, ₸', 'Сомасы, ₸'],
+  send: ['Перевести', 'Аудару'],
+  opsH: ['Операции', 'Операциялар'],
+  noOps: ['Операций пока нет', 'Әзірге операция жоқ'],
+  stopTitle: ['Мы остановили этот перевод', 'Біз бұл аударымды тоқтаттық'],
+  stopText: ['Похоже на схему «ошибочный перевод»: вам прислали чужие деньги и просят переслать их третьему лицу.',
+             'Бұл «қате аударым» схемасына ұқсайды: сізге бөтен ақша жіберіп, оны үшінші тұлғаға аударуды сұрап отыр.'],
+  law: ['Если переслать эти деньги дальше, вас могут посчитать дроппером: счёт заблокируют, а по статье 232-1 УК РК грозит до семи лет.',
+        'Бұл ақшаны әрі қарай аударсаңыз, сізді дроппер деп тануы мүмкін: шотыңыз бұғатталады, ал ҚР ҚК 232-1-бабы бойынша жеті жылға дейін жаза қарастырылған.'],
+  ret: ['Вернуть {m} отправителю', '{m} сомасын жіберушіге қайтару'],
+  insist: ['Всё равно хочу перевести', 'Бәрібір аударғым келеді'],
+  stopTextCall: ['Вам сейчас звонят с номера, который оператор связи пометил как подозрительный, и вы переводите деньги новому получателю. Так работают мошенники: «служба безопасности банка», «безопасный счёт», «следователь».',
+                 'Сізге қазір байланыс операторы күдікті деп белгілеген нөмірден қоңырау шалып жатыр, ал сіз жаңа алушыға ақша аударып жатырсыз. Алаяқтар осылай әрекет етеді: «банктің қауіпсіздік қызметі», «қауіпсіз шот», «тергеуші».'],
+  stopTextGrey: ['Получатель есть в списке подозрительных счетов Антифрод-центра Нацбанка. Банк остановил перевод, чтобы вы могли ещё раз всё проверить.',
+                 'Алушы Ұлттық банктің Антифрод-орталығының күдікті шоттар тізімінде бар. Банк бәрін қайта тексеруіңіз үшін аударымды тоқтатты.'],
+  withdraw: ['Отменить перевод, деньги останутся у меня', 'Аударымды болдырмау, ақша өзімде қалады'],
+  withdrawOk: ['Перевод отменён, деньги остались на вашем счёте.', 'Аударым болдырылмады, ақша шотыңызда қалды.'],
+  tagWithdrawn: ['отменён вами', 'өзіңіз болдырмадыңыз'],
+  callH: ['Вам звонят с подозрительного номера', 'Сізге күдікті нөмірден қоңырау шалып жатыр'],
+  callText: ['Номер {n} оператор связи пометил как подозрительный. Банк никогда не просит переводить деньги на «безопасный счёт», называть коды или ставить приложения. Положите трубку и перезвоните в банк сами.',
+             '{n} нөмірін байланыс операторы күдікті деп белгіледі. Банк ешқашан ақшаны «қауіпсіз шотқа» аударуды, кодтарды айтуды немесе қосымша орнатуды сұрамайды. Телефонды қойып, банкке өзіңіз қоңырау шалыңыз.'],
+  demoH: ['Демо: сигнал оператора связи («Телеком Антифрод»). В банке он приходит от оператора автоматически.',
+          'Демо: байланыс операторының сигналы («Телеком Антифрод»). Банкте ол оператордан автоматты түрде келеді.'],
+  demoCallOn: ['Имитировать звонок с подозрительного номера', 'Күдікті нөмірден қоңырауды имитациялау'],
+  demoCallOff: ['Завершить звонок', 'Қоңырауды аяқтау'],
+  later: ['Решу позже: перевод останется на паузе', 'Кейін шешемін: аударым кідіртілген күйде қалады'],
+  requestError: ['Ошибка запроса', 'Сұраныс қатесі'],
+  blockedH: ['Операции по счёту приостановлены', 'Шот бойынша операциялар тоқтатылды'],
+  whatNoticed: ['Что именно заметила система', 'Жүйе нені байқады'],
+  due: ['Ответим до {d}.', '{d} дейін жауап береміз.'],
+  dueMore: ['Если понадобятся ещё документы, напишем здесь.', 'Қосымша құжаттар керек болса, осында жазамыз.'],
+  needH: ['Что нужно от вас', 'Сізден не керек'],
+  explLabel: ['Опишите своими словами, что произошло', 'Не болғанын өз сөзіңізбен жазыңыз'],
+  explPh: ['Кто прислал деньги, о чём просил, почему вы перевели их дальше', 'Ақшаны кім жіберді, не сұрады, оны неге әрі қарай аудардыңыз'],
+  ifAny: [' (если есть)', ' (болса)'],
+  uploaded: ['Загружено: ', 'Жүктелді: '],
+  fileHint: ['Фото PNG или JPEG либо PDF, до 5 МБ, не больше {n} файлов.', 'PNG не JPEG сурет немесе PDF, 5 МБ-қа дейін, {n} файлдан аспауы керек.'],
+  submit: ['Отправить на рассмотрение', 'Қарауға жіберу'],
+  youSent: ['Вы отправили: {f}.', 'Сіз жібердіңіз: {f}.'],
+  bankAnswer: ['Ответ банка:', 'Банк жауабы:'],
+  antifraudNote: ['Банк рассматривает свою часть. Если сведения о вас есть в базе Антифрод-центра, исключить их могут только правоохранительные органы.',
+                  'Банк өз бөлігін қарайды. Сіз туралы мәліметтер Антифрод-орталықтың базасында болса, оларды тек құқық қорғау органдары алып тастай алады.'],
+  fileTooBig: ['Файл больше 5 МБ', 'Файл 5 МБ-тан үлкен'],
+  tagPaused: ['на паузе', 'кідіртілді'],
+  tagCancelled: ['отменён', 'күші жойылды'],
+  tagOpen: ['на паузе: выберите, что делать', 'кідіртілді: не істейтініңізді таңдаңыз'],
+  tagReview: ['на паузе: проверяет банк', 'кідіртілді: банк тексеріп жатыр'],
+  tagReturnedCase: ['отменён: деньги возвращены отправителю', 'күші жойылды: ақша жіберушіге қайтарылды'],
+  tagCancelledBank: ['отменён банком', 'банк тоқтатты'],
+  tagReleased: ['разрешён банком', 'банк рұқсат берді'],
+  tagMaybeForeign: ['возможно, чужие деньги', 'бөтен ақша болуы мүмкін'],
+  tagReturnedIn: ['возвращён отправителю', 'жіберушіге қайтарылды'],
+  tagReported: ['вы сообщили о мошенничестве', 'сіз алаяқтық туралы хабарладыңыз'],
+  unblocked: ['Ограничения сняты. Спасибо, что объяснили ситуацию: счётом снова можно пользоваться.',
+              'Шектеулер алынды. Жағдайды түсіндіргеніңізге рахмет: шотты қайтадан пайдалана аласыз.'],
+  returnTitle: ['Возврат отправителю', 'Жіберушіге қайтару'],
+  from: ['От: {who}', 'Кімнен: {who}'],
+  toWho: ['Кому: {who}', 'Кімге: {who}'],
+  decide: ['Решить', 'Шешу'],
+  reportQ: ['Это были мошенники?', 'Бұл алаяқтар ма еді?'],
+  alertHotH: ['Отправитель сообщил о мошенничестве', 'Жіберуші алаяқтық туралы хабарлады'],
+  alertH: ['Возможно, это чужие деньги', 'Бұл бөтен ақша болуы мүмкін'],
+  alertFrom: ['{m} от: {who}.', '{m}, жіберуші: {who}.'],
+  alertHot: ['Человек, который прислал вам эти деньги, сообщил банку, что его обманули. Верните их отправителю: так вы не станете звеном схемы.',
+             'Сізге бұл ақшаны жіберген адам банкке өзін алдап кеткенін хабарлады. Ақшаны жіберушіге қайтарыңыз: сонда сіз схеманың бір буыны болмайсыз.'],
+  alertNew: ['Раньше вы не получали переводы от этого человека.', 'Бұрын бұл адамнан аударым алмағансыз.'],
+  alertScheme: ['Если вас просят «вернуть ошибочный перевод» на другую карту или номер, это схема мошенников: так людей делают дропперами. Возвращайте деньги только отправителю, кнопкой ниже.',
+                'Егер сізден «қате аударымды» басқа картаға не нөмірге қайтаруды сұраса, бұл алаяқтардың схемасы: адамдарды дроппер осылай етеді. Ақшаны тек жіберушіге, төмендегі түймемен қайтарыңыз.'],
+  known: ['Я знаю отправителя', 'Мен жіберушіні танимын'],
+  returnedOk: ['Вернули {m} отправителю. Вы ничего не нарушили.', '{m} жіберушіге қайтарылды. Сіз ешнәрсе бұзған жоқсыз.'],
+  knownOk: ['Хорошо. Если этот человек попросит переслать деньги кому-то другому, мы всё равно остановим перевод.',
+            'Жақсы. Егер бұл адам ақшаны басқа біреуге аударуды сұраса, біз аударымды бәрібір тоқтатамыз.'],
+  reportConfirm: ['Сообщить банку, что этот перевод попал к мошенникам?', 'Бұл аударым алаяқтарға түскенін банкке хабарлайсыз ба?'],
+  yesReport: ['Да, сообщить', 'Иә, хабарлау'],
+  cancel: ['Отмена', 'Болдырмау'],
+  done: ['Перевод выполнен', 'Аударым орындалды'],
+  returnedCaseOk: ['Вернули {m} на счёт, с которого они пришли. Вы ничего не нарушили.', '{m} келген шотына қайтарылды. Сіз ешнәрсе бұзған жоқсыз.'],
+  tagGuardianWait: ['на паузе: ждёт подтверждения доверенного лица', 'кідіртілді: сенімді адамның растауын күтуде'],
+  tagGuardianCancelled: ['отменён доверенным лицом', 'сенімді адам болдырмады'],
+  stopGuardian: ['Мы сообщили об остановке вашему доверенному лицу: {g}.', 'Тоқтату туралы сенімді адамыңызға хабарладық: {g}.'],
+  guardH: ['{w}: банк остановил перевод', '{w}: банк аударымды тоқтатты'],
+  guardText: ['{m}, получатель: {r}. Вы доверенное лицо: позвоните и спросите, кто просит перевести деньги.',
+              '{m}, алушы: {r}. Сіз сенімді адамсыз: қоңырау шалып, ақшаны кім аударуды сұрап жатқанын біліңіз.'],
+  guardNotified: ['Если перевод всё равно захотят провести, понадобится ваше подтверждение.',
+                  'Аударымды бәрібір жасағысы келсе, сіздің растауыңыз керек болады.'],
+  guardAsked: ['{w} настаивает на переводе. Без вашего подтверждения он не уйдёт. После подтверждения его ещё проверит сотрудник банка.',
+               '{w} аударымды талап етіп отыр. Сіз растамайынша ол жіберілмейді. Растағаннан кейін оны банк қызметкері тағы тексереді.'],
+  guardCancel: ['Отменить перевод', 'Аударымды болдырмау'],
+  guardConfirm: ['Подтвердить перевод', 'Аударымды растау'],
+  guardKindCall: ['Во время перевода звонили с номера, который оператор связи пометил как подозрительный. Деньги уходят на новый счёт.',
+                  'Аударым кезінде байланыс операторы күдікті деп белгілеген нөмірден қоңырау шалды. Ақша жаңа шотқа кетіп жатыр.'],
+  guardKindGrey: ['Получатель в списке подозрительных счетов Антифрод-центра.', 'Алушы Антифрод-орталықтың күдікті шоттар тізімінде.'],
+  guardKindScheme: ['Недавно пришли деньги от незнакомого человека, и их просят переслать третьему лицу. Это схема «ошибочный перевод».',
+                    'Жақында бейтаныс адамнан ақша келді, оны үшінші тұлғаға жіберуді сұрап отыр. Бұл «қате аударым» схемасы.'],
+  guardCancelOk: ['Перевод отменён, деньги остались на счёте.', 'Аударым болдырылмады, ақша шотта қалды.'],
+  guardConfirmOk: ['Подтвердили. Перевод проверит сотрудник банка.', 'Расталды. Аударымды банк қызметкері тексереді.'],
+  guardianH: ['Доверенное лицо', 'Сенімді адам'],
+  guardianAbout: ['Если банк остановит ваш подозрительный перевод, мы сразу сообщим близкому человеку. Он сможет отменить перевод, а без его подтверждения перевод не уйдёт.',
+                  'Банк сіздің күдікті аударымыңызды тоқтатса, жақын адамыңызға бірден хабарлаймыз. Ол аударымды болдырмай алады, ал ол растамайынша аударым кетпейді.'],
+  guardianNow: ['Сейчас: {g}', 'Қазір: {g}'],
+  guardianRemove: ['Отключить', 'Ажырату'],
+  guardianRemoving: ['Отключится {d}. Если вас попросили «убрать контроль», это могут быть мошенники.',
+                     '{d} ажыратылады. Сізден «бақылауды алып тастауды» сұраса, бұл алаяқтар болуы мүмкін.'],
+  guardianKeep: ['Оставить доверенное лицо', 'Сенімді адамды қалдыру'],
+  guardianPick: ['Можно выбрать человека, с которым вы давно переводите друг другу деньги', 'Бір-біріңізге көптен бері ақша аударып жүрген адамды таңдауға болады'],
+  guardianSet: ['Назначить', 'Тағайындау'],
+  guardianNone: ['Пока некого назначить: нужен человек, с которым вы переводите друг другу деньги больше месяца.',
+                 'Әзірге тағайындайтын адам жоқ: бір айдан астам бір-біріңізге ақша аударып жүрген адам керек.'],
+  certH: ['Ограничения сняты', 'Шектеулер алынды'],
+  certText: ['Справка № {n}: банк признал, что вы не были осознанным участником схемы. Её можно показать в другом банке, подлинность проверяется по коду {c}.',
+             '№ {n} анықтама: банк сізді схемаға саналы түрде қатыспаған деп таныды. Оны басқа банкке көрсетуге болады, түпнұсқалығы {c} коды бойынша тексеріледі.'],
+  certOpen: ['Открыть справку', 'Анықтаманы ашу'],
+  recruitH: ['Похоже, через ваш счёт проводят чужие деньги', 'Шотыңыз арқылы бөтен ақша өткізіліп жатқан сияқты'],
+  recruitText: ['За неделю {n} незнакомых людей прислали вам {m}.', 'Бір аптада {n} бейтаныс адам сізге {m} жіберді.'],
+  recruitScheme: ['Если вам предложили «подработку»: принимать переводы и пересылать их дальше или передать карту, это вербовка в дропперы. Такие счета блокируют, за участие грозит уголовная ответственность. Откажитесь и верните деньги отправителям.',
+                  'Егер сізге «қосымша жұмыс» ұсынылса: аударымдарды қабылдап, әрі қарай жіберу немесе картаны беру, бұл дропперлікке тарту. Мұндай шоттар бұғатталады, қатысқаны үшін қылмыстық жауапкершілік қарастырылған. Бас тартып, ақшаны жіберушілерге қайтарыңыз.'],
+  recruitReturn: ['Вернуть всем отправителям {m}', 'Барлық жіберушілерге {m} қайтару'],
+  recruitKnown: ['Это мои покупатели или знакомые', 'Бұлар менің сатып алушыларым немесе таныстарым'],
+  recruitAfter: ['Если часть денег вы уже переслали, позвоните в банк и расскажите, кто и о чём вас просил.',
+                 'Ақшаның бір бөлігін жіберіп қойсаңыз, банкке қоңырау шалып, кім не сұрағанын айтыңыз.'],
+  recruitReturned: ['Вернули {m} отправителям. Вы вышли из схемы.', '{m} жіберушілерге қайтарылды. Сіз схемадан шықтыңыз.'],
+  recruitKnownOk: ['Хорошо. Если кто-то из них попросит переслать деньги, мы всё равно остановим перевод.',
+                   'Жақсы. Олардың біреуі ақшаны басқаға жіберуді сұраса, біз аударымды бәрібір тоқтатамыз.'],
+  msgH: ['Проверить сообщение', 'Хабарламаны тексеру'],
+  msgLabel: ['Вставьте текст из WhatsApp, Telegram или SMS. Мы не сохраняем его.', 'WhatsApp, Telegram не SMS мәтінін қойыңыз. Біз оны сақтамаймыз.'],
+  msgCheck: ['Проверить', 'Тексеру'],
+  msgHits: ['Что насторожило:', 'Не алаңдатты:'],
+  msgDo: ['Что делать', 'Не істеу керек'],
+  msgReturn: ['Вернуть {m} отправителю ({who})', '{m} жіберушіге қайтару ({who})'],
+  msgWatch: ['В ближайший час мы внимательнее проверим ваши переводы новым получателям.', 'Алдағы бір сағатта жаңа алушыларға аударымдарыңызды мұқият тексереміз.'],
+  demoMsgH: ['Демо: примеры сообщений мошенников', 'Демо: алаяқтар хабарламаларының мысалдары'],
+  exMistaken: ['«Ошибочный перевод»', '«Қате аударым»'],
+  exSafe: ['«Безопасный счёт»', '«Қауіпсіз шот»'],
+  exInvest: ['Инвестиции', 'Инвестиция'],
+  exJob: ['«Подработка»', '«Қосымша жұмыс»'],
+  exText_mistaken: ['Здравствуйте! Я по ошибке перевела вам 150 000 тенге, это деньги на операцию для мамы. Пожалуйста, верните срочно на карту 4400 0000 1234 5678, моя карта заблокирована.',
+                    'Сәлеметсіз бе! Сізге 150 000 теңгені қате аударып жібердім, бұл анамның отасына арналған ақша. Өтінемін, тез арада 4400 0000 1234 5678 картасына қайтарыңыз.'],
+  exText_safe: ['Служба безопасности банка. На ваше имя пытаются оформить кредит. Чтобы сохранить деньги, переведите их на безопасный счёт. Никому не сообщайте о звонке.',
+                'Банктің қауіпсіздік қызметі. Сіздің атыңызға несие рәсімделуде. Ақшаны сақтау үшін оны қауіпсіз шотқа аударыңыз. Ешкімге айтпаңыз.'],
+  exText_invest: ['Инвестплатформа «Профит»: гарантированный доход 3% в день. Вложите от 50 000 тенге, вывод в любое время. Переходите: bit.ly/profit-kz',
+                  '«Профит» инвестиция платформасы: күніне 3% кепілдендірілген табыс. 50 000 теңгеден салыңыз. Тіркеліңіз: bit.ly/profit-kz'],
+  exText_job: ['Подработка для студентов! Нужно принимать переводы на свою карту и переводить дальше, оплата 5% от суммы. Работа на дому, 1–2 часа в день.',
+               'Студенттерге қосымша жұмыс! Картаңызға аударымдарды қабылдап, әрі қарай аудару керек, сомадан 5% төлейміз. Үйден жұмыс.'],
+  stopTextMessage: ['Вы недавно проверили сообщение, и оно похоже на схему мошенников. А теперь переводите деньги новому получателю. Банк остановил перевод, чтобы вы могли ещё раз всё проверить.',
+                    'Жақында тексерген хабарламаңыз алаяқтар схемасына ұқсайды. Ал енді жаңа алушыға ақша аударып жатырсыз. Бәрін қайта тексеруіңіз үшін банк аударымды тоқтатты.'],
+  coolH: ['Перевод уйдёт в {t}', 'Аударым {t} кетеді'],
+  coolText: ['{m}, получатель: {r}. Крупный первый перевод новому получателю мы придерживаем на час. Если вас торопят, звонят от имени банка или полиции или просят никому не говорить, отмените его.',
+             '{m}, алушы: {r}. Жаңа алушыға алғашқы ірі аударымды бір сағатқа ұстап тұрамыз. Сізді асықтырса, банк не полиция атынан қоңырау шалса немесе ешкімге айтпауды сұраса, оны болдырмаңыз.'],
+  coolCancel: ['Отменить перевод', 'Аударымды болдырмау'],
+  coolCancelOk: ['Перевод отменён, деньги остались на счёте.', 'Аударым болдырылмады, ақша шотта қалды.'],
+  coolSent: ['Перевод уйдёт в {t}. До этого его можно отменить.', 'Аударым {t} кетеді. Оған дейін болдырмауға болады.'],
+  guardCoolH: ['{w} переводит {m} новому получателю', '{w} жаңа алушыға {m} аударып жатыр'],
+  guardCoolText: ['Получатель: {r}. Перевод уйдёт в {t}. Если это похоже на мошенников, позвоните и отмените перевод.',
+                  'Алушы: {r}. Аударым {t} кетеді. Алаяқтарға ұқсаса, қоңырау шалып, аударымды болдырмаңыз.'],
+  tagPending: ['уйдёт в {t}', '{t} кетеді'],
+  insistOk: ['Перевод остаётся на паузе. Его проверит сотрудник банка, ответ появится в списке операций.',
+             'Аударым кідіртілген күйде қалады. Оны банк қызметкері тексереді, жауабы операциялар тізімінде шығады.'],
+};
+const cookieLang = (document.cookie.match(/(?:^|; )ca_lang=(ru|kk)/) || [])[1];
+let L = cookieLang || 'ru';
+const tr = (key, vars = {}) => T[key][L === 'kk' ? 1 : 0].replace(/\{(\w+)\}/g, (_, k) => vars[k]);
+
 const $ = id => document.getElementById(id);
 const esc = s => String(s ?? '').replace(/[&<>"]/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[ch]));
 const money = n => Number(n).toLocaleString('ru-RU') + ' ₸';
-let people = [], me = null, held = null, appeal = null;
+const hm = s => String(s || '').slice(11, 16);
+let people = [], me = null, held = null, appeal = null, serverNow = null;
+
+function applyStatic() {
+  document.documentElement.lang = L === 'kk' ? 'kk' : 'ru';
+  document.title = tr('app');
+  document.querySelectorAll('[data-t]').forEach(n => n.textContent = tr(n.dataset.t));
+  $('who').setAttribute('aria-label', tr('who'));
+  document.querySelectorAll('[data-lang]').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.lang === L)));
+}
 
 async function api(path, body) {
   const r = await fetch(path, body ? {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)} : {});
   const data = await r.json().catch(() => ({}));
-  if (!r.ok) { const e = new Error(typeof data.detail === 'string' ? data.detail : 'Ошибка запроса'); e.status = r.status; throw e; }
+  if (!r.ok) { const e = new Error(typeof data.detail === 'string' ? data.detail : tr('requestError')); e.status = r.status; throw e; }
   return data;
 }
 function note(text, kind) { $('note').innerHTML = text ? `<div class="note ${kind}">${esc(text)}</div>` : ''; }
@@ -118,39 +369,49 @@ async function loginAs(id) {
   me = id; $('who').value = id;
 }
 
+async function loadPeople() {
+  people = await api('/demo/clients');
+  $('who').innerHTML = people.map(p => `<option value="${p.id}">${esc(p.name)}</option>`).join('');
+  if (me) $('who').value = me;
+}
+
 async function loadBlock() {
   appeal = await api(`/clients/${me}/case`);
   const cls = {under_review:'review', unblocked:'done'}[appeal.status] || '';
   let html = `<span class="status ${cls}">${esc(appeal.status_text)}</span>
-    <h2>Операции по счёту приостановлены</h2>
+    <h2>${tr('blockedH')}</h2>
     <p>${esc(appeal.summary)}</p>
-    <details><summary>Что именно заметила система</summary><ul>${appeal.reasons.map(r => `<li>${esc(r.text)}</li>`).join('')}</ul></details>`;
-  if (appeal.can_submit) {
-    html += `<h2 style="color:inherit;margin-top:16px">Что нужно от вас</h2>
-      <label for="expl">Опишите своими словами, что произошло</label>
-      <textarea id="expl" maxlength="2000" placeholder="Кто прислал деньги, о чём просил, почему вы перевели их дальше"></textarea>` +
-      appeal.required.map(d => `<div class="doc"><b>${esc(d.title)}${d.required ? '' : ' (если есть)'}</b>
-        ${d.uploaded ? '<span class="have">Загружено: ' + appeal.documents.filter(x => x.kind === d.kind).map(x => esc(x.filename)).join(', ') + '</span>' : ''}
-        <input type="file" accept="image/png,image/jpeg,application/pdf" data-kind="${esc(d.kind)}" aria-label="${esc(d.title)}"></div>`).join('') +
-      `<p class="muted">Фото PNG или JPEG либо PDF, до 5 МБ, не больше ${appeal.max_documents} файлов.</p>
-      <button class="primary" id="submitAppeal">Отправить на рассмотрение</button>`;
-  } else {
-    if (appeal.documents.length) html += `<p class="muted">Вы отправили: ${appeal.documents.map(d => esc(d.filename)).join(', ')}.</p>`;
-    if (appeal.decision_comment) html += `<div class="note err"><b>Ответ банка:</b> ${esc(appeal.decision_comment)}</div>`;
+    <details><summary>${tr('whatNoticed')}</summary><ul>${appeal.reasons.map(r => `<li>${esc(r.text)}</li>`).join('')}</ul></details>`;
+  if (appeal.status === 'under_review' && appeal.due_at) {
+    const d = new Date(appeal.due_at).toLocaleDateString(L === 'kk' ? 'kk-KZ' : 'ru-RU', {day:'numeric', month:'long'});
+    html += `<p><b>${esc(tr('due', {d}))}</b> ${tr('dueMore')}</p>`;
   }
-  html += `<div id="blockNote"></div>
-    <p class="muted">Банк рассматривает свою часть. Если сведения о вас есть в базе Антифрод-центра, исключить их могут только правоохранительные органы.</p>`;
+  if (appeal.can_submit) {
+    html += `<h2 style="color:inherit;margin-top:16px">${tr('needH')}</h2>
+      <label for="expl">${tr('explLabel')}</label>
+      <textarea id="expl" maxlength="2000" placeholder="${esc(tr('explPh'))}"></textarea>` +
+      appeal.required.map(d => `<div class="doc"><b>${esc(d.title)}${d.required ? '' : tr('ifAny')}</b>
+        ${d.uploaded ? '<span class="have">' + tr('uploaded') + appeal.documents.filter(x => x.kind === d.kind).map(x => esc(x.filename)).join(', ') + '</span>' : ''}
+        <input type="file" accept="image/png,image/jpeg,application/pdf" data-kind="${esc(d.kind)}" aria-label="${esc(d.title)}"></div>`).join('') +
+      `<p class="muted">${esc(tr('fileHint', {n: appeal.max_documents}))}</p>
+      <button class="primary" id="submitAppeal">${tr('submit')}</button>`;
+  } else {
+    if (appeal.documents.length) html += `<p class="muted">${esc(tr('youSent', {f: appeal.documents.map(d => d.filename).join(', ')}))}</p>`;
+    if (appeal.decision_comment) html += `<div class="note err"><b>${tr('bankAnswer')}</b> ${esc(appeal.decision_comment)}</div>`;
+  }
+  html += `<div id="blockNote"></div><p class="muted">${tr('antifraudNote')}</p>`;
+  const kept = $('expl') ? $('expl').value : '';
   $('blockCard').innerHTML = html;
+  if ($('expl')) $('expl').value = kept;
   const bnote = (t, k) => $('blockCard').querySelector('#blockNote').innerHTML = `<div class="note ${k}">${esc(t)}</div>`;
   $('blockCard').querySelectorAll('input[type=file]').forEach(inp => inp.onchange = async () => {
     const f = inp.files[0]; if (!f) return;
-    const text = $('expl').value;
     try {
-      if (f.size > 5 * 1024 * 1024) throw new Error('Файл больше 5 МБ');
+      if (f.size > 5 * 1024 * 1024) throw new Error(tr('fileTooBig'));
       const b64 = await new Promise((ok, bad) => { const r = new FileReader();
         r.onload = () => ok(r.result.split(',')[1]); r.onerror = bad; r.readAsDataURL(f); });
       await api(`/cases/${appeal.case_id}/documents`, {kind: inp.dataset.kind, filename: f.name, content_base64: b64});
-      await loadBlock(); $('expl').value = text;
+      await loadBlock();
     } catch (e) { bnote(e.message, 'err'); }
   });
   const btn = $('blockCard').querySelector('#submitAppeal');
@@ -162,57 +423,292 @@ async function loadBlock() {
 
 // Что стало с переводом, который система остановила.
 function heldTag(t) {
-  if (!t.case_id) return {held: ['held', 'на паузе'], cancelled: ['', 'отменён']}[t.status] || null;
+  if (!t.case_id) return {held: ['held', tr('tagPaused')], cancelled: ['', tr('tagCancelled')],
+                          pending: ['warn', tr('tagPending', {t: hm(t.release_at)})]}[t.status] || null;
   return ({
-    open: ['held', 'на паузе: выберите, что делать'],
-    under_review: ['held', 'на паузе: проверяет банк'],
-    returned: ['', 'отменён: деньги возвращены отправителю'],
-    cancelled: ['held', 'отменён банком'],
-    released: ['', 'разрешён банком'],
-  })[t.case_status] || (t.status === 'cancelled' ? ['', 'отменён'] : null);
+    open: ['held', tr('tagOpen')],
+    asked: ['held', tr('tagGuardianWait')],
+    under_review: ['held', tr('tagReview')],
+    returned: ['', tr('tagReturnedCase')],
+    cancelled: ['held', tr('tagCancelledBank')],
+    released: ['', tr('tagReleased')],
+    withdrawn: ['', tr('tagWithdrawn')],
+    guardian_cancelled: ['', tr('tagGuardianCancelled')],
+  })[t.case_status === 'open' && t.guardian_state === 'asked' ? 'asked' : t.case_status] || (t.status === 'cancelled' ? ['', tr('tagCancelled')] : null);
 }
 
 async function load() {
   let c;
   try { c = await api('/clients/' + me); }
   catch (e) { if (e.status !== 401 && e.status !== 403) throw e; await loginAs(me); c = await api('/clients/' + me); }
+  serverNow = c.now;
   $('balance').textContent = money(c.available);
-  $('heldLine').textContent = c.held ? `Ещё ${money(c.held)} на паузе до решения по остановленному переводу` : '';
+  $('heldLine').textContent = c.held ? tr('heldLine', {m: money(c.held)}) : '';
+  renderCall(c.call);
   const blocked = c.status === 'blocked';
   $('blockCard').hidden = !blocked; $('transferCard').hidden = blocked;
   if (blocked) await loadBlock();
   else {
     // Если блокировку только что сняли, говорим об этом клиенту.
     const last = await api(`/clients/${me}/case`).catch(() => null);
-    if (last && last.status === 'unblocked' && !$('note').innerHTML) note('Ограничения сняты. Спасибо, что объяснили ситуацию: счётом снова можно пользоваться.', 'ok');
+    renderCert(last && last.status === 'unblocked' ? last.certificate : null);
+    if (last && last.status === 'unblocked' && !(last.certificate && last.certificate.valid) && !$('note').innerHTML)
+      note(tr('unblocked'), 'ok');
   }
+  if (blocked) renderCert(null);
+  renderGuardRequests(c.guardian_requests || []);
+  renderCooling(c.cooling || [], c.guardian_cooling || []);
+  loadGuardian();
+  const chosen = $('to').value;
   $('to').innerHTML = people.filter(p => p.id !== me).map(p => `<option value="${p.id}">${esc(p.name)}</option>`).join('');
+  if (chosen) $('to').value = chosen;
+  checkRecipient();
+  renderAlerts(blocked ? [] : c.feed, c.recruit);   // пока счёт приостановлен, вернуть деньги самому нельзя
   $('feed').innerHTML = c.feed.map(t => {
     const incoming = t.direction === 'in';
-    const title = t.return_of ? 'Возврат отправителю' : (incoming ? 'От: ' + t.sender : 'Кому: ' + t.receiver);
-    const tag = incoming ? null : heldTag(t);
-    const open = !incoming && t.case_status === 'open' ? ` <button class="link" data-case="${t.case_id}">Решить</button>` : '';
-    const answer = !incoming && t.decision_comment ? `<div class="muted">Ответ банка: ${esc(t.decision_comment)}</div>` : '';
-    return `<div class="row"><div>${esc(title)} ${tag ? `<span class="tag ${tag[0]}">${tag[1]}</span>` : ''}${open}
-            <div class="muted">${esc(t.created_at.replace('T',' ').slice(0,16))}</div>${answer}</div>
+    const title = t.return_of ? tr('returnTitle') : (incoming ? tr('from', {who: t.sender}) : tr('toWho', {who: t.receiver}));
+    let tag = incoming ? null : heldTag(t);
+    if (incoming && t.warning) tag = ['warn', tr('tagMaybeForeign')];
+    if (incoming && t.returned) tag = ['', tr('tagReturnedIn')];
+    if (!incoming && t.complained) tag = ['warn', tr('tagReported')];
+    const open = !incoming && t.case_status === 'open' ? ` <button class="link" data-case="${t.case_id}">${tr('decide')}</button>` : '';
+    const answer = !incoming && t.decision_comment ? `<div class="muted">${tr('bankAnswer')} ${esc(t.decision_comment)}</div>` : '';
+    const report = !incoming && t.can_complain && !t.complained
+      ? `<div><button class="link" data-report="${t.id}" style="padding:0;font-weight:500;color:var(--muted)">${tr('reportQ')}</button></div>` : '';
+    return `<div class="row"><div>${esc(title)} ${tag ? `<span class="tag ${tag[0]}">${esc(tag[1])}</span>` : ''}${open}
+            <div class="muted">${esc(t.created_at.replace('T',' ').slice(0,16))}</div>${answer}${report}</div>
             <div class="amt ${incoming ? 'in' : ''}">${incoming ? '+' : '−'}${money(t.amount)}</div></div>`;
-  }).join('') || '<div class="muted">Операций пока нет</div>';
+  }).join('') || `<div class="muted">${tr('noOps')}</div>`;
   $('feed').querySelectorAll('button[data-case]').forEach(b => b.onclick = async () => showStop(await api('/cases/' + b.dataset.case)));
+  $('feed').querySelectorAll('button[data-report]').forEach(b => b.onclick = () => askReport(b));
+}
+
+// Предупреждение приходит вместе с деньгами, а не в момент, когда мошенник уже просит их переслать.
+function renderAlerts(feed, recruit) {
+  // Если похоже на вербовку, показываем одну общую карточку вместо предупреждения по каждому переводу.
+  const skip = new Set(recruit ? recruit.incoming_ids : []);
+  const items = feed.filter(t => t.direction === 'in' && t.warning && !skip.has(t.id));
+  $('alerts').innerHTML = (recruit ? `
+    <div class="alert recruit">
+      <h2>${tr('recruitH')}</h2>
+      <p>${esc(tr('recruitText', {n: recruit.senders, m: money(recruit.amount)}))}</p>
+      <p>${tr('recruitScheme')}</p>
+      <div class="actions">
+        <button class="primary" id="recruitReturn">${esc(tr('recruitReturn', {m: money(recruit.amount)}))}</button>
+        <button class="soft" id="recruitKnown">${tr('recruitKnown')}</button>
+      </div>
+      <p style="font-size:14px">${tr('recruitAfter')}</p>
+    </div>` : '') + items.map(t => `
+    <div class="alert ${t.complained ? 'hot' : ''}">
+      <h2>${tr(t.complained ? 'alertHotH' : 'alertH')}</h2>
+      <p>${esc(tr('alertFrom', {m: money(t.amount), who: t.sender}))} ${tr(t.complained ? 'alertHot' : 'alertNew')}</p>
+      ${t.complained ? '' : `<p>${tr('alertScheme')}</p>`}
+      <div class="actions">
+        <button class="primary" data-return="${t.id}">${esc(tr('ret', {m: money(t.amount)}))}</button>
+        ${t.complained ? '' : `<button class="soft" data-known="${t.id}">${tr('known')}</button>`}
+      </div>
+    </div>`).join('');
+  $('alerts').querySelectorAll('[data-return]').forEach(b => b.onclick = async () => {
+    b.disabled = true;
+    try { const r = await api(`/incoming/${b.dataset.return}/return`, {}); note(tr('returnedOk', {m: money(r.amount)}), 'ok'); }
+    catch (e) { note(e.message, 'err'); }
+    load();
+  });
+  if (recruit) {
+    $('recruitReturn').onclick = async () => {
+      $('recruitReturn').disabled = true;
+      try { const r = await api('/recruit/return-all', {}); note(tr('recruitReturned', {m: money(r.amount)}), 'ok'); }
+      catch (e) { note(e.message, 'err'); }
+      load();
+    };
+    $('recruitKnown').onclick = async () => {
+      try { await api('/recruit/dismiss', {}); note(tr('recruitKnownOk'), 'ok'); } catch (e) { note(e.message, 'err'); }
+      load();
+    };
+  }
+  $('alerts').querySelectorAll('[data-known]').forEach(b => b.onclick = async () => {
+    await api(`/incoming/${b.dataset.known}/known`, {}).catch(e => note(e.message, 'err'));
+    note(tr('knownOk'), 'ok');
+    load();
+  });
+}
+
+// Справка о снятии ограничений: её можно открыть, распечатать и показать в другом банке.
+function renderCert(cert) {
+  $('certCard').hidden = !(cert && cert.valid);
+  if (!cert || !cert.valid) return;
+  $('certCard').innerHTML = `<h2>${tr('certH')}</h2><p>${esc(tr('certText', {n: cert.number, c: cert.code}))}</p>
+    <a class="btn" href="/clients/${me}/certificate" target="_blank" rel="noopener">${tr('certOpen')}</a>`;
+}
+
+// Экран доверенного лица: остановленные переводы близкого человека.
+function renderGuardRequests(items) {
+  $('guardAlerts').innerHTML = items.map(g => `
+    <div class="alert guard">
+      <h2>${esc(tr('guardH', {w: g.ward}))}</h2>
+      <p>${esc(tr('guardText', {m: money(g.amount), r: g.receiver}))}</p>
+      <p><b>${tr({call: 'guardKindCall', grey: 'guardKindGrey'}[g.kind] || 'guardKindScheme')}</b></p>
+      <p>${esc(g.state === 'asked' ? tr('guardAsked', {w: g.ward}) : g.status === 'open' ? tr('guardNotified') : tr('tagReview'))}</p>
+      <div class="actions">
+        <button class="primary" data-gcancel="${g.case_id}">${tr('guardCancel')}</button>
+        ${g.state === 'asked' ? `<button class="soft" data-gconfirm="${g.case_id}">${tr('guardConfirm')}</button>` : ''}
+      </div>
+    </div>`).join('');
+  $('guardAlerts').querySelectorAll('[data-gcancel]').forEach(b => b.onclick = async () => {
+    b.disabled = true;
+    try { await api(`/guardian/requests/${b.dataset.gcancel}/cancel`, {}); note(tr('guardCancelOk'), 'ok'); }
+    catch (e) { note(e.message, 'err'); }
+    load();
+  });
+  $('guardAlerts').querySelectorAll('[data-gconfirm]').forEach(b => b.onclick = async () => {
+    b.disabled = true;
+    try { await api(`/guardian/requests/${b.dataset.gconfirm}/confirm`, {}); note(tr('guardConfirmOk'), 'ok'); }
+    catch (e) { note(e.message, 'err'); }
+    load();
+  });
+}
+
+// Настройка доверенного лица. Отключение вступает в силу через сутки.
+async function loadGuardian() {
+  const forWho = me;
+  const g = await api('/guardian').catch(() => null);
+  if (!g || forWho !== me) return;
+  const box = $('guardianCard');
+  let html = `<h2>${tr('guardianH')}</h2><p class="muted">${tr('guardianAbout')}</p>`;
+  if (g.guardian) {
+    html += `<p><b>${esc(tr('guardianNow', {g: g.guardian.name}))}</b></p>`;
+    if (g.guardian.remove_at) {
+      const d = new Date(g.guardian.remove_at).toLocaleString(L === 'kk' ? 'kk-KZ' : 'ru-RU', {day:'numeric', month:'long', hour:'2-digit', minute:'2-digit'});
+      html += `<div class="note err">${esc(tr('guardianRemoving', {d}))}</div><button class="primary" id="gKeep">${tr('guardianKeep')}</button>`;
+    } else html += `<button class="ghost" id="gRemove">${tr('guardianRemove')}</button>`;
+  } else if (g.candidates.length) {
+    html += `<label for="gPick">${tr('guardianPick')}</label><select id="gPick">${g.candidates.map(c => `<option value="${c.id}">${esc(c.name)}</option>`).join('')}</select>
+      <button class="primary" id="gSet">${tr('guardianSet')}</button>`;
+  } else html += `<p class="muted">${tr('guardianNone')}</p>`;
+  box.innerHTML = html;
+  const act = async (path, body) => { try { await api(path, body); } catch (e) { note(e.message, 'err'); } loadGuardian(); };
+  if ($('gKeep')) $('gKeep').onclick = () => act('/guardian/keep', {});
+  if ($('gRemove')) $('gRemove').onclick = () => act('/guardian/remove', {});
+  if ($('gSet')) $('gSet').onclick = () => act('/guardian', {guardian_id: +$('gPick').value});
+}
+
+// Период охлаждения: свой отложенный перевод и переводы близкого человека, если клиент его доверенное лицо.
+let coolTimer = null;
+function renderCooling(own, wards) {
+  $('coolAlerts').innerHTML = own.map(t => `
+    <div class="alert cool">
+      <h2>${esc(tr('coolH', {t: hm(t.release_at)}))}</h2>
+      <p>${esc(tr('coolText', {m: money(t.amount), r: t.receiver}))}</p>
+      <div class="actions"><button class="primary" data-cool="${t.id}">${tr('coolCancel')}</button></div>
+    </div>`).join('') + wards.map(t => `
+    <div class="alert guard">
+      <h2>${esc(tr('guardCoolH', {w: t.sender, m: money(t.amount)}))}</h2>
+      <p>${esc(tr('guardCoolText', {r: t.receiver, t: hm(t.release_at)}))}</p>
+      <div class="actions"><button class="primary" data-gcool="${t.id}">${tr('coolCancel')}</button></div>
+    </div>`).join('');
+  const act = (sel, path) => $('coolAlerts').querySelectorAll(sel).forEach(b => b.onclick = async () => {
+    b.disabled = true;
+    try { await api(path(b), {}); note(tr('coolCancelOk'), 'ok'); } catch (e) { note(e.message, 'err'); }
+    load();
+  });
+  act('[data-cool]', b => `/transfers/${b.dataset.cool}/cancel`);
+  act('[data-gcool]', b => `/guardian/transfers/${b.dataset.gcool}/cancel`);
+  // Когда срок выйдет, экран обновится сам: перевод уйдёт и карточка исчезнет.
+  clearTimeout(coolTimer);
+  const next = [...own, ...wards].map(t => new Date(t.release_at) - new Date(serverNow)).sort((a, b) => a - b)[0];
+  if (next !== undefined) coolTimer = setTimeout(load, Math.min(Math.max(next, 0) + 1500, 600000));
+}
+
+// Проверка подозрительного сообщения: схема, что насторожило и что делать.
+$('msgCheck').onclick = async () => {
+  $('msgCheck').disabled = true;
+  try {
+    const r = await api('/messages/check', {text: $('msgText').value});
+    let html = `<div class="msgres ${r.verdict}"><h3>${esc(r.title)}</h3><p>${esc(r.text)}</p>`;
+    if (r.matched.length) html += `<p>${tr('msgHits')} ${r.matched.map(m => `<span class="hit">${esc(m)}</span>`).join(' ')}</p>`;
+    if (r.flags.length) html += `<ul>${r.flags.map(f => `<li>${esc(f.text)}</li>`).join('')}</ul>`;
+    if (r.advice.length) html += `<b>${tr('msgDo')}</b><ol>${r.advice.map(a => `<li>${esc(a)}</li>`).join('')}</ol>`;
+    if (r.verdict === 'danger') html += `<p style="font-size:14px">${tr('msgWatch')}</p>`;
+    if (r.return_incoming) html += `<button class="primary" id="msgReturn">${esc(tr('msgReturn', {m: money(r.return_incoming.amount), who: r.return_incoming.sender}))}</button>`;
+    $('msgResult').innerHTML = html + '</div>';
+    if (r.return_incoming) $('msgReturn').onclick = async () => {
+      $('msgReturn').disabled = true;
+      try { const x = await api(`/incoming/${r.return_incoming.id}/return`, {}); note(tr('returnedOk', {m: money(x.amount)}), 'ok'); $('msgResult').innerHTML = ''; }
+      catch (e) { note(e.message, 'err'); }
+      load();
+    };
+  } catch (e) { $('msgResult').innerHTML = `<div class="note err">${esc(e.message)}</div>`; }
+  $('msgCheck').disabled = false;
+};
+document.querySelectorAll('[data-example]').forEach(b => b.onclick = () => {
+  $('msgText').value = tr('exText_' + b.dataset.example); $('msgResult').innerHTML = '';
+  $('msgCard').scrollIntoView({behavior: 'smooth', block: 'start'});
+});
+
+function askReport(btn) {
+  const box = document.createElement('div');
+  box.className = 'confirm';
+  box.innerHTML = `${tr('reportConfirm')}<br>
+    <button class="primary">${tr('yesReport')}</button><button class="soft">${tr('cancel')}</button>`;
+  btn.replaceWith(box);
+  const [yes, no] = box.querySelectorAll('button');
+  no.onclick = () => load();
+  yes.onclick = async () => {
+    yes.disabled = true;
+    try { const r = await api(`/transfers/${btn.dataset.report}/complaint`, {}); note(r.text, r.outcome === 'warned' ? 'err' : 'ok'); }
+    catch (e) { note(e.message, 'err'); }
+    load();
+  };
 }
 
 function showStop(r) {
   held = r;
+  // Текст окна зависит от причины: чужие деньги, звонок мошенника или подозрительный получатель.
+  $('stopText').textContent = tr({scheme: 'stopText', call: 'stopTextCall', grey: 'stopTextGrey', message: 'stopTextMessage'}[r.kind] || 'stopText');
   $('reasons').innerHTML = r.reasons.map(x => `<li>${esc(x.text)}</li>`).join('');
-  $('ret').textContent = `Вернуть ${money(r.safe_return.amount)} отправителю`;
+  $('law').hidden = r.kind !== 'scheme';
+  $('ret').hidden = !r.safe_return;
+  $('withdraw').hidden = !!r.safe_return;
+  if (r.safe_return) $('ret').textContent = tr('ret', {m: money(r.safe_return.amount)});
+  $('stopGuardian').textContent = r.guardian ? tr('stopGuardian', {g: r.guardian}) : '';
   $('overlay').classList.add('show');
 }
+
+$('withdraw').onclick = async () => {
+  $('overlay').classList.remove('show');
+  try { await api(`/cases/${held.case_id}/withdraw`, {}); note(tr('withdrawOk'), 'ok'); $('amount').value = ''; }
+  catch (e) { note(e.message, 'err'); }
+  load();
+};
+
+// Проверка получателя по базе Антифрод-центра ещё до нажатия «Перевести».
+async function checkRecipient() {
+  const id = $('to').value;
+  if (!id) return;
+  const r = await api(`/recipients/${id}/check`).catch(() => null);
+  if ($('to').value !== id) return;
+  $('recipientNote').innerHTML = r && r.text ? `<div class="note err">${esc(r.text)}</div>` : '';
+}
+$('to').onchange = checkRecipient;
+
+let callOn = false;
+function renderCall(call) {
+  callOn = !!call;
+  $('callAlert').innerHTML = call ? `<div class="alert call"><h2>${tr('callH')}</h2><p>${esc(tr('callText', {n: call.number}))}</p></div>` : '';
+  $('callToggle').textContent = tr(callOn ? 'demoCallOff' : 'demoCallOn');
+}
+$('callToggle').onclick = async () => {
+  const r = await api('/telecom/signal', {active: !callOn}).catch(e => { note(e.message, 'err'); return undefined; });
+  if (r !== undefined) renderCall(r);
+};
 
 $('send').onclick = async () => {
   note(''); $('send').disabled = true;
   try {
     const r = await api('/transfers', {receiver_id: +$('to').value, amount: Math.floor(+$('amount').value)});
     if (r.status === 'held') showStop(r);
-    else { note('Перевод выполнен', 'ok'); $('amount').value = ''; }
+    else if (r.status === 'pending') { note(tr('coolSent', {t: hm(r.release_at)}), 'err'); $('amount').value = ''; }
+    else { note(tr('done'), 'ok'); $('amount').value = ''; }
   } catch (e) { note(e.message, 'err'); }
   $('send').disabled = false; load();
 };
@@ -220,24 +716,38 @@ $('ret').onclick = async () => {
   $('overlay').classList.remove('show');
   try {
     const r = await api(`/cases/${held.case_id}/return-to-sender`, {});
-    note(`Вернули ${money(r.amount)} на счёт, с которого они пришли. Вы ничего не нарушили.`, 'ok'); $('amount').value = '';
+    note(tr('returnedCaseOk', {m: money(r.amount)}), 'ok'); $('amount').value = '';
   } catch (e) { note(e.message, 'err'); }
   load();
 };
 $('insist').onclick = async () => {
   $('overlay').classList.remove('show');
-  try {
-    await api(`/cases/${held.case_id}/insist`, {});
-    note('Перевод остаётся на паузе. Его проверит сотрудник банка, ответ появится в списке операций.', 'err');
-  } catch (e) { note(e.message, 'err'); }
+  try { const r = await api(`/cases/${held.case_id}/insist`, {}); note(r.status === 'guardian' ? r.text : tr('insistOk'), 'err'); }
+  catch (e) { note(e.message, 'err'); }
   load();
 };
 $('later').onclick = () => { $('overlay').classList.remove('show'); load(); };
-$('who').onchange = async () => { note(''); await loginAs(+$('who').value); load(); };
+// При смене клиента сразу убираем экран прежнего: иначе можно успеть нажать кнопку в чужом случае.
+function clearScreen() {
+  note(''); appeal = null; held = null;
+  $('overlay').classList.remove('show');
+  $('alerts').innerHTML = ''; $('blockCard').innerHTML = ''; $('blockCard').hidden = true;
+  $('feed').innerHTML = ''; $('balance').textContent = '…'; $('heldLine').textContent = '';
+  $('recipientNote').innerHTML = ''; $('callAlert').innerHTML = '';
+  $('guardAlerts').innerHTML = ''; $('guardianCard').innerHTML = ''; $('certCard').hidden = true;
+  $('coolAlerts').innerHTML = ''; $('msgText').value = ''; $('msgResult').innerHTML = ''; clearTimeout(coolTimer);
+}
+$('who').onchange = async () => { clearScreen(); await loginAs(+$('who').value); load(); };
+// Язык хранится в cookie: сервер читает его и отвечает на том же языке.
+document.querySelectorAll('[data-lang]').forEach(b => b.onclick = async () => {
+  L = b.dataset.lang;
+  document.cookie = `ca_lang=${L}; path=/; max-age=31536000; samesite=strict`;
+  note(''); applyStatic(); await loadPeople(); load();
+});
 
 (async () => {
-  people = await api('/demo/clients');
-  $('who').innerHTML = people.map(p => `<option value="${p.id}">${esc(p.name)}</option>`).join('');
+  applyStatic();
+  await loadPeople();
   const s = await api('/me').catch(() => null);
   await loginAs(s && s.client ? s.client.client_id : people[0].id);
   load();
