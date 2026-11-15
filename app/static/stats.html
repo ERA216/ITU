@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Чистый счёт: эффективность</title>
+<style>
+  :root { --bg:#f3f5f4; --card:#fff; --ink:#14201b; --ink2:#3d4a44; --muted:#66736d; --line:#e2e7e4; --grid:#eef1ef;
+          --brand:#0b6b4f; --warn:#b3261e; --warn-bg:#fdecea; --amber-bg:#fff4d6; --amber:#7a5200; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--ink); font:15px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  header { display:flex; flex-wrap:wrap; justify-content:space-between; align-items:center; gap:12px; padding:14px 16px; background:#fff; border-bottom:1px solid var(--line); }
+  header b { color:var(--brand); font-size:17px; }
+  header a { color:var(--muted); font-size:14px; margin-left:12px; }
+  main { max-width:1040px; margin:0 auto; padding:16px; }
+  h1 { font-size:22px; margin:6px 0 4px; }
+  h2 { font-size:16px; margin:0 0 10px; }
+  .lead { color:var(--ink2); margin:0 0 14px; max-width:780px; }
+  .muted { color:var(--muted); font-size:13px; }
+  .note { background:var(--amber-bg); color:var(--amber); border-radius:12px; padding:10px 14px; font-size:14px; margin-bottom:14px; }
+  .group { background:var(--card); border-radius:14px; padding:16px; margin-bottom:14px; }
+  .tiles { display:grid; grid-template-columns:repeat(auto-fit, minmax(200px, 1fr)); gap:16px; }
+  .tile .label { color:var(--muted); font-size:13px; }
+  .tile .value { font-size:28px; font-weight:650; font-variant-numeric:tabular-nums; line-height:1.2; margin:2px 0; }
+  .tile .sub { color:var(--ink2); font-size:13px; }
+  .chart { position:relative; }
+  svg { display:block; overflow:visible; }
+  .axis text { fill:var(--muted); font-size:12px; font-variant-numeric:tabular-nums; }
+  .tip { position:absolute; pointer-events:none; background:var(--ink); color:#fff; font-size:13px; padding:6px 9px;
+         border-radius:8px; white-space:nowrap; transform:translate(-50%, -100%); display:none; }
+  table { width:100%; border-collapse:collapse; font-size:14px; }
+  th, td { text-align:left; padding:6px; border-top:1px solid var(--line); }
+  th { color:var(--muted); font-weight:600; font-size:13px; border-top:0; }
+  td.num, th.num { text-align:right; font-variant-numeric:tabular-nums; }
+  details { margin-top:8px; }
+  summary { cursor:pointer; color:var(--muted); font-size:13px; }
+  .scroll { overflow-x:auto; }
+  a { color:var(--brand); }
+</style>
+</head>
+<body>
+<header><b>Чистый счёт · эффективность</b><span><a href="/analyst">Панель аналитика</a><a href="/quality">Качество движка</a><a href="/">Экран клиента</a></span></header>
+<main>
+  <h1>Эффективность за 30 дней</h1>
+  <p class="lead" id="lead">Загружаем показатели…</p>
+  <div class="note" id="simNote" hidden>Демо-данные. Какие переводы остановить, решал настоящий движок на синтетических переводах. Что дальше сделали клиенты и сотрудники банка (вернули деньги, настояли на переводе, сняли блокировку), смоделировано по заданным вероятностям. Ваши действия в демо добавляются к этим цифрам.</div>
+
+  <section class="group"><h2>Деньги</h2><div class="tiles" id="money"></div></section>
+
+  <section class="group">
+    <h2>Сохранено по дням, ₸</h2>
+    <p class="muted">Сумма остановленных переводов, которые так и не ушли получателю: клиент вернул деньги отправителю или банк отменил перевод.</p>
+    <div class="chart" id="chart"></div>
+    <details><summary>Показать таблицей</summary><div class="scroll" id="dayTable"></div></details>
+  </section>
+
+  <section class="group"><h2>Профилактика</h2>
+    <p class="muted">Только действия в демо: в смоделированной истории периода охлаждения и проверок сообщений нет.</p>
+    <div class="tiles" id="prevent"></div></section>
+  <section class="group"><h2>Нагрузка на сотрудников</h2><div class="tiles" id="load"></div></section>
+  <section class="group"><h2>Ошибки системы</h2><div class="tiles" id="errors"></div></section>
+  <section class="group"><h2>Жалобы и апелляции</h2><div class="tiles" id="appeals"></div></section>
+</main>
+<script>
+const $ = id => document.getElementById(id);
+const money = n => Number(n).toLocaleString('ru-RU') + ' ₸';
+const compact = n => n >= 1e6 ? (n / 1e6).toLocaleString('ru-RU', {maximumFractionDigits: 1}) + ' млн ₸' : money(n);
+const num = n => Number(n).toLocaleString('ru-RU');
+const pct = v => v == null ? '—' : v.toLocaleString('ru-RU', {maximumFractionDigits: 1}) + '%';
+const hrs = v => v == null ? '—' : v.toLocaleString('ru-RU', {maximumFractionDigits: 1}) + ' ч';
+const tile = (label, value, sub = '') => `<div class="tile"><div class="label">${label}</div><div class="value">${value}</div><div class="sub">${sub}</div></div>`;
+const NS = 'http://www.w3.org/2000/svg';
+const el = (tag, attrs = {}, parent) => { const n = document.createElementNS(NS, tag); for (const [k, v] of Object.entries(attrs)) n.setAttribute(k, v); if (parent) parent.appendChild(n); return n; };
+
+function niceMax(v) { if (!v) return 1; const p = 10 ** Math.floor(Math.log10(v)); return Math.ceil(v / p) * p; }
+
+function drawBars(host, data) {
+  host.innerHTML = '';
+  const W = Math.max(300, host.clientWidth), H = 220, m = {l: 64, r: 8, t: 10, b: 28};
+  const max = niceMax(Math.max(...data.map(d => d.saved)));
+  const slot = (W - m.l - m.r) / data.length, bw = Math.min(24, slot * 0.7);
+  const Y = v => m.t + (1 - v / max) * (H - m.t - m.b);
+  const svg = el('svg', {width: W, height: H, role: 'img', 'aria-label': 'Сохранено по дням'});
+  const axis = el('g', {class: 'axis'}, svg);
+  for (let i = 0; i <= 4; i++) {
+    const v = max * i / 4;
+    el('line', {x1: m.l, x2: W - m.r, y1: Y(v), y2: Y(v), stroke: 'var(--grid)', 'stroke-width': 1}, axis);
+    el('text', {x: m.l - 8, y: Y(v) + 4, 'text-anchor': 'end'}, axis).textContent = v >= 1e6 ? (v / 1e6).toLocaleString('ru-RU') + ' млн' : num(v);
+  }
+  const every = W < 560 ? 7 : 5;
+  data.forEach((d, i) => {
+    const x = m.l + i * slot + (slot - bw) / 2, h = H - m.b - Y(d.saved);
+    if (d.saved > 0) {
+      const r = Math.min(4, h);   // скругление только у верхнего края, снизу прямо от оси
+      el('path', {d: `M${x},${H - m.b} V${Y(d.saved) + r} Q${x},${Y(d.saved)} ${x + r},${Y(d.saved)} H${x + bw - r} Q${x + bw},${Y(d.saved)} ${x + bw},${Y(d.saved) + r} V${H - m.b} Z`,
+                  fill: 'var(--brand)'}, svg);
+    }
+    if ((data.length - 1 - i) % every === 0)
+      el('text', {x: x + bw / 2, y: H - 8, 'text-anchor': 'middle'}, axis).textContent = d.day.slice(8, 10) + '.' + d.day.slice(5, 7);
+  });
+  el('line', {x1: m.l, x2: W - m.r, y1: H - m.b, y2: H - m.b, stroke: 'var(--line)', 'stroke-width': 1}, svg);
+  const tip = document.createElement('div'); tip.className = 'tip';
+  const hit = el('rect', {x: m.l, y: 0, width: W - m.l - m.r, height: H - m.b, fill: 'transparent'}, svg);
+  host.append(svg, tip);
+  hit.addEventListener('pointermove', e => {
+    const i = Math.max(0, Math.min(data.length - 1, Math.floor((e.clientX - svg.getBoundingClientRect().left - m.l) / slot)));
+    const d = data[i];
+    tip.innerHTML = `${d.day.slice(8, 10)}.${d.day.slice(5, 7)}: <b>${money(d.saved)}</b> · остановлено переводов: ${d.stops}`;
+    tip.style.display = 'block';
+    const half = tip.offsetWidth / 2, cx = m.l + i * slot + slot / 2;
+    tip.style.left = Math.min(Math.max(cx, half), W - half) + 'px'; tip.style.top = (Y(d.saved) - 8) + 'px';
+  });
+  hit.addEventListener('pointerleave', () => tip.style.display = 'none');
+}
+
+(async () => {
+  const r = await fetch('/analyst/metrics');
+  if (r.status === 401) { location.href = '/analyst'; return; }
+  const m = await r.json();
+  $('simNote').hidden = !m.simulated_history;
+  $('lead').textContent = `Система остановила ${num(m.stops)} переводов, по ${num(m.kept_count)} из них деньги не ушли получателю.` +
+    (m.self_resolved_share > 50 ? ` ${pct(m.self_resolved_share)} остановок клиенты закрыли сами, без сотрудника банка.` : '');
+  $('money').innerHTML =
+    tile('Сохранено от мошенников', compact(m.saved_amount), 'остановленные переводы, которые не ушли получателю') +
+    tile('Возвращено отправителям', compact(m.returned_amount), `${num(m.returned_count)} возвратов кнопкой «Вернуть отправителю»`) +
+    tile('Клиентов уберегли от статуса дроппера', num(m.protected_clients), 'вернули чужие деньги, а не переслали их дальше');
+  $('prevent').innerHTML =
+    tile('Отменено в период охлаждения', compact(m.cooling_saved), `${num(m.cooling_cancelled)} из ${num(m.cooling)} отложенных крупных первых переводов`) +
+    tile('Проверено сообщений', num(m.message_checks), `похожи на схемы мошенников: ${num(m.message_danger)}`);
+  $('load').innerHTML =
+    tile('Остановлено переводов', num(m.stops), `ждут решения сейчас: ${num(m.pending_stops)}`) +
+    tile('Клиенты решили сами', pct(m.self_resolved_share), 'вернули деньги или отменили перевод без сотрудника банка') +
+    tile('Дошло до сотрудника', num(m.analyst_stops), 'клиент настоял на переводе, решение принял сотрудник') +
+    tile('Отменили доверенные лица', num(m.guardian_cancelled), 'родственник клиента отменил остановленный перевод');
+  $('errors').innerHTML =
+    tile('Разрешено после проверки', num(m.released), `${pct(m.released_share)} остановок оказались честными переводами`) +
+    tile('Честный клиент ждал решения', hrs(m.release_wait_hours), 'медиана от остановки до разрешения');
+  $('appeals').innerHTML =
+    tile('Жалоб от пострадавших', num(m.complaints), `всего приостановлено счетов: ${num(m.blocks)}`) +
+    tile('Апелляций рассмотрено', `${num(m.appeals_decided)} из ${num(m.appeals)}`, `сейчас просрочено: ${num(m.appeals_overdue)}`) +
+    tile('Время ответа на апелляцию', hrs(m.appeal_hours_median), `медиана по ${num(m.appeals_decided)} апелляциям; в срок 3 дня: ${pct(m.appeals_in_time_share)}`) +
+    tile('Ограничения сняты', pct(m.unblocked_share), `из ${num(m.appeals_decided)} рассмотренных: клиент оказался невольным участником`) +
+    tile('Справок выдано', num(m.clearances), 'о снятии ограничений, с проверкой подлинности по коду');
+  const draw = () => drawBars($('chart'), m.per_day);
+  draw(); let t; addEventListener('resize', () => { clearTimeout(t); t = setTimeout(draw, 150); });
+  $('dayTable').innerHTML = '<table><tr><th>День</th><th class="num">Остановлено</th><th class="num">Сохранено</th></tr>' +
+    m.per_day.slice().reverse().map(d => `<tr><td>${d.day.slice(8, 10)}.${d.day.slice(5, 7)}</td><td class="num">${d.stops}</td><td class="num">${money(d.saved)}</td></tr>`).join('') + '</table>';
+})();
+</script>
+</body>
+</html>
