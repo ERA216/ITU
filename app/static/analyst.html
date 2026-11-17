@@ -56,6 +56,7 @@
   .tabs button { flex:1; border:0; background:none; border-radius:16px; padding:6px 4px; font-weight:500; font:inherit; font-size:13px; color:var(--muted); cursor:pointer; }
   .tabs button[aria-selected="true"] { background:#3a3a3b; color:#fff; }
   .card.linked { border:2px solid var(--warn-bg); }
+  .card.decision { border:2px solid var(--brand-bg, #e6f7f0); }
   header a { margin-left:14px; text-decoration:none; }
   ol.hops { list-style:none; padding:0; margin:8px 0 0; }
   ol.hops li { display:grid; grid-template-columns:110px 1fr; column-gap:10px; padding:7px 0; border-top:1px solid var(--line); }
@@ -173,6 +174,15 @@ async function open(id) {
       ${c.due_at && c.needs_decision ? `<div class="muted">Клиенту обещан ответ до ${when(c.due_at)}</div>` : ''}
       <div class="muted">Это подсказка по правилам ниже. Решение принимает сотрудник.</div>
     </div>
+    <div class="card decision"><h2>Решение</h2>
+      ${c.needs_decision ? `
+        <textarea id="comment" placeholder="Комментарий для клиента. При отказе обязателен."></textarea>
+        <div class="actions"><button class="act approve" id="approve">${approve}</button><button class="act reject" id="reject">${reject}</button></div>
+        <div id="err"></div>` : `
+        <span class="pill">${esc(c.status_text)}</span> <span class="muted">${c.decided_at ? when(c.decided_at) : ''}</span>
+        ${c.decision_comment ? `<blockquote>${esc(c.decision_comment)}</blockquote>` : ''}
+        ${c.certificate ? `<p class="muted">Справка № ${esc(c.certificate.number)} выдана ${when(c.certificate.issued_at)}${c.certificate.valid ? '' : ', отозвана ' + when(c.certificate.revoked_at)}. Проверка: <a href="/verify/${esc(c.certificate.code)}" target="_blank" rel="noopener">/verify/${esc(c.certificate.code)}</a></p>` : ''}`}
+    </div>
     ${c.self_report ? `<div class="card"><h2>Клиент сам сообщил банку</h2>
       <p><b>${esc(c.self_report.kind_text)}</b></p>
       ${c.self_report.details ? `<blockquote>${esc(c.self_report.details)}</blockquote>` : ''}
@@ -240,15 +250,7 @@ async function open(id) {
       <p class="muted">Сведения по случаю для передачи в Антифрод-центр: клиент, операции, признаки, цепочка, решение. Формат условный, технических данных (IP, геолокация, номера) в демо нет.</p>
       <button class="act" id="report" style="background:var(--line);max-width:320px">Выгрузить сведения (JSON)</button>
     </div>
-    <div class="card"><h2>Решение</h2>
-      ${c.needs_decision ? `
-        <textarea id="comment" placeholder="Комментарий для клиента. При отказе обязателен."></textarea>
-        <div class="actions"><button class="act approve" id="approve">${approve}</button><button class="act reject" id="reject">${reject}</button></div>
-        <div id="err"></div>` : `
-        <span class="pill">${esc(c.status_text)}</span> <span class="muted">${c.decided_at ? when(c.decided_at) : ''}</span>
-        ${c.decision_comment ? `<blockquote>${esc(c.decision_comment)}</blockquote>` : ''}
-        ${c.certificate ? `<p class="muted">Справка № ${esc(c.certificate.number)} выдана ${when(c.certificate.issued_at)}${c.certificate.valid ? '' : ', отозвана ' + when(c.certificate.revoked_at)}. Проверка: <a href="/verify/${esc(c.certificate.code)}" target="_blank" rel="noopener">/verify/${esc(c.certificate.code)}</a></p>` : ''}`}
-    </div>`;
+`;
   $('detail').querySelectorAll('[data-open]').forEach(b => b.onclick = () => open(+b.dataset.open));
   $('detail').querySelectorAll('[data-suspend-card]').forEach(b => b.onclick = async () => {
     b.disabled = true;
