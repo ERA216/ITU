@@ -20,12 +20,18 @@ def compute(conn, now: datetime, days: int = 30) -> dict:
         by.setdefault(k["status"], []).append(k)
     # Деньги не ушли получателю: вернули отправителю, отменил банк, клиент или его доверенное лицо.
     kept = by.get("returned", []) + by.get("cancelled", []) + by.get("withdrawn", []) + by.get("guardian_cancelled", [])
+    # Возвраты пострадавшим по жалобам считаются отдельно: это не «клиент сам вернул чужие деньги».
+    not_refund = "id NOT IN (SELECT transfer_id FROM events WHERE action='refunded' AND transfer_id IS NOT NULL)"
     returns = conn.execute(
-        """SELECT COUNT(*) AS n, COALESCE(SUM(amount), 0) AS s FROM transfers
-           WHERE return_of IS NOT NULL AND status='done' AND created_at >= ?""", (since,)).fetchone()
+        f"""SELECT COUNT(*) AS n, COALESCE(SUM(amount), 0) AS s FROM transfers
+            WHERE return_of IS NOT NULL AND status='done' AND created_at >= ? AND {not_refund}""", (since,)).fetchone()
     protected = conn.execute(
-        """SELECT COUNT(DISTINCT sender_id) AS n FROM transfers
-           WHERE return_of IS NOT NULL AND status='done' AND created_at >= ?""", (since,)).fetchone()["n"]
+        f"""SELECT COUNT(DISTINCT sender_id) AS n FROM transfers
+            WHERE return_of IS NOT NULL AND status='done' AND created_at >= ? AND {not_refund}""",
+        (since,)).fetchone()["n"]
+    refunds = conn.execute(
+        """SELECT COUNT(*) AS n, COALESCE(SUM(t.amount), 0) AS s FROM events e JOIN transfers t ON t.id=e.transfer_id
+           WHERE e.action='refunded' AND e.at >= ?""", (since,)).fetchone()
     decided_stops = [k for k in stops if k["decided_at"]]
     wait = [_hours(k["created_at"], k["decided_at"]) for k in by.get("released", [])]
 
@@ -61,6 +67,10 @@ def compute(conn, now: datetime, days: int = 30) -> dict:
         "release_wait_hours": round(statistics.median(wait), 1) if wait else None,
         "pending_stops": len(by.get("under_review", [])) + len(by.get("open", [])),
         "complaints": complaints,
+        "victim_refunds": refunds["n"],
+        "victim_refund_amount": refunds["s"],
+        "partial_blocks": sum(b["scope"] == "partial" for b in blocks),
+        "self_reports": conn.execute("SELECT COUNT(*) AS n FROM self_reports WHERE at >= ?", (since,)).fetchone()["n"],
         "guardian_cancelled": len(by.get("guardian_cancelled", [])),
         **_cooling_and_messages(conn, since),
         "clearances": conn.execute("SELECT COUNT(*) AS n FROM clearances WHERE issued_at >= ?", (since,)).fetchone()["n"],

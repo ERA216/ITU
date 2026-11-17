@@ -84,6 +84,15 @@ EVENT_TEXT = {
     "guardian_cancelled": "Доверенное лицо отменило перевод",
     "cleared": "Выдана справка о снятии ограничений",
     "recruit_dismissed": "Клиент ответил на предупреждение о вербовке: знает отправителей",
+    "refunded": "Деньги возвращены пострадавшему",
+    "escalated": "Сотрудник приостановил счёт полностью",
+    "self_report": "Клиент сам сообщил банку, что его втянули в схему",
+}
+UNRESOLVED = ("open", "under_review", "kept")      # блокировка действует, пока случай в одном из этих статусов
+SELF_REPORT_KINDS = {
+    "card": "Передал карту, её данные или доступ к приложению другому человеку",
+    "transit": "Принимал чужие деньги и пересылал их по чьей-то просьбе",
+    "offer": "Предложили такую «подработку», но клиент ещё ничего не делал",
 }
 # Те же статусы словами для сотрудника банка.
 ANALYST_STATUS = {
@@ -308,17 +317,48 @@ def client_app():
     return FileResponse(os.path.join(STATIC, "index.html"))
 
 
-def _block_client(cid: int):
-    """Приостанавливает счёт. Справка о прежнем снятии ограничений при этом перестаёт действовать."""
-    conn.execute("UPDATE clients SET status='blocked' WHERE id=?", (cid,))
-    conn.execute("UPDATE clearances SET revoked_at=? WHERE client_id=? AND revoked_at IS NULL",
-                 (_now().isoformat(), cid))
+def _refresh_status(cid: int) -> str:
+    """Статус счёта по нерешённым блокировкам: полная закрывает счёт, соразмерная замораживает спорную сумму.
+
+    Справка о прежнем снятии ограничений перестаёт действовать, как только появляется новое ограничение.
+    """
+    scopes = {r["scope"] for r in conn.execute(
+        f"""SELECT scope FROM cases WHERE client_id=? AND kind='block'
+            AND status IN ({",".join("?" * len(UNRESOLVED))})""", (cid, *UNRESOLVED))}
+    status = "blocked" if "full" in scopes else "limited" if scopes else "active"
+    conn.execute("UPDATE clients SET status=? WHERE id=?", (status, cid))
+    if status != "active":
+        conn.execute("UPDATE clearances SET revoked_at=? WHERE client_id=? AND revoked_at IS NULL",
+                     (_now().isoformat(), cid))
+    return status
 
 
 def _held_sum(cid: int) -> int:
     # Деньги под перевод на паузе или в периоде охлаждения зарезервированы: потратить их ещё раз нельзя.
     return conn.execute("""SELECT COALESCE(SUM(amount),0) AS s FROM transfers
                            WHERE sender_id=? AND status IN ('held','pending')""", (cid,)).fetchone()["s"]
+
+
+def _frozen_sum(cid: int, except_case: int | None = None) -> int:
+    """Спорные деньги, замороженные соразмерной блокировкой: остальным клиент пользуется."""
+    return conn.execute(
+        f"""SELECT COALESCE(SUM(frozen),0) AS s FROM cases WHERE client_id=? AND kind='block' AND scope='partial'
+            AND status IN ({",".join("?" * len(UNRESOLVED))}) AND id IS NOT ?""",
+        (cid, *UNRESOLVED, except_case)).fetchone()["s"]
+
+
+def _available(cid: int) -> int:
+    return _client(cid)["balance"] - _held_sum(cid) - _frozen_sum(cid)
+
+
+def _limited_since(cid: int) -> str | None:
+    """С какого момента получатель считается «новым» для клиента с соразмерной блокировкой:
+    со спорного поступления (или с начала случая, если поступления нет)."""
+    rows = conn.execute(
+        f"""SELECT k.created_at, i.created_at AS inc_at FROM cases k LEFT JOIN transfers i ON i.id=k.incoming_transfer_id
+            WHERE k.client_id=? AND k.kind='block' AND k.scope='partial'
+            AND k.status IN ({",".join("?" * len(UNRESOLVED))})""", (cid, *UNRESOLVED)).fetchall()
+    return min((r["inc_at"] or r["created_at"] for r in rows), default=None)
 
 
 def _move(sender_id: int, receiver_id: int, amount: int):
@@ -339,7 +379,7 @@ def client_feed(cid: int, s: dict = Depends(session)):
            WHERE t.sender_id=? OR (t.receiver_id=? AND t.status='done')   -- получатель не видит остановленные
            ORDER BY t.created_at DESC, t.id DESC LIMIT 30""",
         (cid, cid)).fetchall()
-    held = _held_sum(cid)
+    held, frozen = _held_sum(cid), _frozen_sum(cid)
     feed = []
     for r in rows:
         item = dict(r) | {"direction": "in" if r["receiver_id"] == cid else "out",
@@ -347,13 +387,18 @@ def client_feed(cid: int, s: dict = Depends(session)):
                           "receiver": i18n.name(r["receiver_id"], r["receiver"])}
         if item["direction"] == "in":
             item |= _incoming_flags(cid, r)
+            # Возврат по жалобе приходит от счёта из цепочки, а не от того, кому клиент переводил.
+            item["refund"] = bool(r["return_of"]) and _incoming_row(r["return_of"])["receiver_id"] != r["sender_id"]
         else:
             item["can_complain"] = _can_complain(r)
             item["complained"] = bool(conn.execute("SELECT 1 FROM complaints WHERE transfer_id=?",
                                                    (r["id"],)).fetchone())
         feed.append(item)
-    return {"id": c["id"], "name": c["name"], "balance": c["balance"], "held": held,
-            "available": c["balance"] - held, "status": c["status"], "feed": feed, "call": _call_info(cid),
+    return {"id": c["id"], "name": c["name"], "balance": c["balance"], "held": held, "frozen": frozen,
+            "available": max(0, c["balance"] - held - frozen), "status": c["status"], "feed": feed,
+            "call": _call_info(cid),
+            "complaints": _complaints_view(cid),
+            "self_report": _self_report_view(cid),
             "recruit": _recruit_view(cid) if c["status"] != "blocked" else None,
             "guardian_requests": _guardian_requests(cid),
             "cooling": _cooling_list("t.sender_id=?", (cid,)),
@@ -367,8 +412,15 @@ def _incoming_row(tid: int):
     return conn.execute("SELECT * FROM transfers WHERE id=?", (tid,)).fetchone()
 
 
+def _returned_sum(inc_id: int) -> int:
+    """Сколько денег этого перевода уже вернули его отправителю: получатель сам или счета дальше по цепочке."""
+    return conn.execute("SELECT COALESCE(SUM(amount),0) AS s FROM transfers WHERE return_of=? AND status='done'",
+                        (inc_id,)).fetchone()["s"]
+
+
 def _returned(inc_id: int) -> bool:
-    return bool(conn.execute("SELECT 1 FROM transfers WHERE return_of=? AND status='done'", (inc_id,)).fetchone())
+    inc = _incoming_row(inc_id)
+    return bool(inc) and _returned_sum(inc_id) >= inc["amount"]
 
 
 def _incoming_flags(cid: int, r) -> dict:
@@ -425,6 +477,10 @@ def create_transfer(body: TransferIn, s: dict = Depends(as_client)):
         raise HTTPException(403, t("account_blocked"))
     if engine.afc_status(conn, body.receiver_id) == "black":
         raise HTTPException(403, t("afc_black"))
+    if sender["status"] == "limited" and not engine._had_contact(conn, sender_id, body.receiver_id,
+                                                                 _limited_since(sender_id)):
+        # Соразмерная блокировка: свои деньги доступны, но только для тех, кому клиент переводил и раньше.
+        raise HTTPException(403, t("limited_new_receiver"))
     now = _now()
     res = engine.evaluate(conn, sender_id, body.receiver_id, body.amount, now)
     # На один «чужой» входящий существует не больше одного незакрытого случая.
@@ -437,8 +493,8 @@ def create_transfer(body: TransferIn, s: dict = Depends(as_client)):
             raise HTTPException(409, t("under_review_dup"))
         if prev:   # новая попытка заменяет прежнюю, её резерв освобождается
             conn.execute("UPDATE transfers SET status='cancelled' WHERE id=?", (prev["transfer_id"],))
-    if sender["balance"] - _held_sum(sender_id) < body.amount:
-        raise HTTPException(400, t("no_funds"))
+    if _available(sender_id) < body.amount:
+        raise HTTPException(400, t("no_funds_frozen" if _frozen_sum(sender_id) else "no_funds"))
 
     if res["decision"] != "hold":
         if not res.get("return_to_sender") and _needs_cooling(sender_id, body.receiver_id, body.amount, now):
@@ -503,16 +559,17 @@ def _return_incoming(client: dict, inc) -> dict:
     for case in cases:
         conn.execute("UPDATE transfers SET status='cancelled' WHERE id=?", (case["transfer_id"],))
         conn.execute("UPDATE cases SET status='returned' WHERE id=?", (case["id"],))
-    available = _client(cid)["balance"] - _held_sum(cid)
-    if available < inc["amount"]:
-        raise HTTPException(400, t("return_no_funds", available=_money(available), amount=_money(inc["amount"])))
+    amount = inc["amount"] - _returned_sum(inc["id"])      # часть могли уже вернуть пострадавшему по жалобе
+    available = max(0, _available(cid))
+    if available < amount:
+        raise HTTPException(400, t("return_no_funds", available=_money(available), amount=_money(amount)))
     cur = conn.execute(
         "INSERT INTO transfers(sender_id,receiver_id,amount,created_at,status,return_of) VALUES(?,?,?,?,?,?)",
-        (cid, inc["sender_id"], inc["amount"], _now().isoformat(), "done", inc["id"]))
-    _move(cid, inc["sender_id"], inc["amount"])
+        (cid, inc["sender_id"], amount, _now().isoformat(), "done", inc["id"]))
+    _move(cid, inc["sender_id"], amount)
     for case in cases or [None]:
-        log(f"client:{cid}", "returned", case["id"] if case else None, inc["id"], amount=inc["amount"])
-    return {"status": "returned", "return_transfer_id": cur.lastrowid, "amount": inc["amount"]}
+        log(f"client:{cid}", "returned", case["id"] if case else None, inc["id"], amount=amount)
+    return {"status": "returned", "return_transfer_id": cur.lastrowid, "amount": amount}
 
 
 @app.post("/cases/{case_id}/return-to-sender")
@@ -622,19 +679,34 @@ def _trace_complaint(tr, complaint_id: int, now: datetime, complainant: int) -> 
                                       datetime.fromisoformat(first["created_at"]))
                 reasons += res["reasons"]
                 score, out_id = min(100, res["score"] + 30), first["id"]
-                text = f"Операции приостановлены: деньги переслали дальше ({_money(sum(r['amount'] for r in fwd))})"
+                sent = sum(r["amount"] for r in fwd)
+                text = f"деньги переслали дальше ({_money(sent)})"
                 nxt.extend(fwd)
             else:
-                score, out_id = 30, None
-                text = f"Операции приостановлены: на счёте остались деньги из цепочки ({_money(inc['amount'])})"
+                score, out_id, sent = 30, None, 0
+                text = f"на счёте остались деньги из цепочки ({_money(inc['amount'])})"
+            # Сколько денег из цепочки осталось на этом счёте: их банк замораживает в любом случае.
+            frozen = max(0, inc["amount"] - sent)
             case_id = conn.execute(
                 """INSERT INTO cases(client_id,transfer_id,incoming_transfer_id,kind,score,reasons,created_at,
-                                     complaint_id,hop) VALUES(?,?,?,?,?,?,?,?,?)""",
+                                     complaint_id,hop,frozen) VALUES(?,?,?,?,?,?,?,?,?,?)""",
                 (holder, out_id, inc["id"], "block", score, json.dumps(reasons, ensure_ascii=False),
-                 now.isoformat(), complaint_id, hop)).lastrowid
-            _block_client(holder)
+                 now.isoformat(), complaint_id, hop, frozen)).lastrowid
+            # Соразмерная блокировка: если по правилам клиент похож на невольного участника, замораживается
+            # только спорная сумма. Остальных (и всех, в ком система не уверена) счёт закрывается целиком.
+            case = conn.execute("SELECT * FROM cases WHERE id=?", (case_id,)).fetchone()
+            role = engine.assess_role(conn, holder, case, now)
+            partial = role["verdict"] == "unwitting"
+            if partial:
+                conn.execute("UPDATE cases SET scope='partial' WHERE id=?", (case_id,))
+                text = (f"Заморожено {_money(frozen)}: {text}. Остальными деньгами клиент пользуется, "
+                        "но только для знакомых получателей")
+            else:
+                text = "Операции приостановлены: " + text
+            _refresh_status(holder)
             log(f"client:{complainant}", "complaint", case_id, tr["id"], amount=tr["amount"])
-            log("system", "blocked", case_id, out_id or inc["id"], text=text, hop=hop)
+            log("system", "blocked", case_id, out_id or inc["id"], text=text, hop=hop,
+                scope="partial" if partial else "full", role=role["label"])
             created.append(case_id)
         frontier = nxt
     return created
@@ -669,6 +741,90 @@ def complain(tid: int, s: dict = Depends(as_client)):
     if not cases:
         log(f"client:{s['client_id']}", "complaint", None, tid, amount=tr["amount"], outcome=outcome)
     return {"outcome": outcome, "text": text}
+
+
+# ---------- Что стало с жалобой: пострадавший видит, где его деньги ----------
+
+def _complaint_state(p) -> dict:
+    """Сколько денег пострадавшего заморожено в цепочке и сколько ему уже вернули."""
+    tr = _incoming_row(p["transfer_id"])
+    cases = conn.execute("SELECT * FROM cases WHERE complaint_id=?", (p["id"],)).fetchall()
+    returned = min(tr["amount"], _returned_sum(tr["id"]))
+    frozen = min(tr["amount"] - returned, sum(k["frozen"] for k in cases if k["status"] in UNRESOLVED))
+    if returned >= tr["amount"]:
+        stage = "returned"
+    elif any(k["status"] in ("open", "under_review") for k in cases):
+        stage = "checking"
+    elif frozen:
+        stage = "frozen"
+    elif p["outcome"] == "warned":
+        stage = "warned"
+    else:
+        stage = "closed"
+    return {"amount": tr["amount"], "returned": returned, "frozen": frozen, "stage": stage, "transfer": tr}
+
+
+def _complaints_view(cid: int) -> list[dict]:
+    out = []
+    for p in conn.execute("SELECT * FROM complaints WHERE complainant_id=? ORDER BY id DESC LIMIT 5", (cid,)):
+        st = _complaint_state(p)
+        who = _client(st["transfer"]["receiver_id"])
+        vals = {"m": _money(st["amount"]), "r": _money(st["returned"]), "f": _money(st["frozen"]),
+                "left": _money(st["amount"] - st["returned"])}
+        text = t("complaint.stage." + st["stage"], **vals)
+        if st["returned"] and st["stage"] != "returned":
+            text = t("complaint.part", **vals) + " " + text
+        out.append({"id": p["id"], "created_at": p["created_at"], "amount": st["amount"],
+                    "receiver": i18n.name(who["id"], who["name"]), "stage": st["stage"],
+                    "returned": st["returned"], "frozen": st["frozen"], "text": text})
+    return out
+
+
+def _refundable(case) -> int:
+    """Сколько денег из цепочки можно вернуть пострадавшему со счёта этого случая прямо сейчас."""
+    if case["kind"] != "block" or not case["complaint_id"] or case["status"] not in UNRESOLVED:
+        return 0
+    p = conn.execute("SELECT * FROM complaints WHERE id=?", (case["complaint_id"],)).fetchone()
+    owed = _incoming_row(p["transfer_id"])["amount"] - _returned_sum(p["transfer_id"])
+    cid = case["client_id"]
+    on_account = _client(cid)["balance"] - _held_sum(cid) - _frozen_sum(cid, except_case=case["id"])
+    return max(0, min(case["frozen"], owed, on_account))
+
+
+def _refund(case, actor: str) -> dict:
+    """Возвращает пострадавшему деньги из цепочки, которые остались на счёте. Больше, чем он перевёл, не уйдёт."""
+    amount = _refundable(case)
+    if not amount:
+        raise HTTPException(409, t("refund_none"))
+    p = conn.execute("SELECT * FROM complaints WHERE id=?", (case["complaint_id"],)).fetchone()
+    cur = conn.execute(
+        "INSERT INTO transfers(sender_id,receiver_id,amount,created_at,status,return_of) VALUES(?,?,?,?,?,?)",
+        (case["client_id"], p["complainant_id"], amount, _now().isoformat(), "done", p["transfer_id"]))
+    _move(case["client_id"], p["complainant_id"], amount)
+    conn.execute("UPDATE cases SET frozen = frozen - ? WHERE id=?", (amount, case["id"]))
+    log(actor, "refunded", case["id"], cur.lastrowid, amount=amount,
+        text=f"Пострадавшему возвращено {_money(amount)}" + (": клиент вернул сам" if actor != "analyst" else ""))
+    return {"status": "refunded", "amount": amount}
+
+
+@app.post("/cases/{case_id}/refund")
+def refund_by_client(case_id: int, s: dict = Depends(as_client)):
+    """Клиент сам возвращает пострадавшему замороженные деньги, не дожидаясь решения банка."""
+    return _refund(_own_case(s, case_id, "block"), f"client:{s['client_id']}")
+
+
+@app.post("/analyst/cases/{case_id}/refund")
+def refund_by_analyst(case_id: int, s: dict = Depends(as_analyst)):
+    """Сотрудник возвращает пострадавшему деньги, замороженные на счёте из цепочки.
+
+    В банке для этого нужно основание: согласие владельца счёта либо решение суда или органа
+    уголовного преследования. В демо это одна кнопка.
+    """
+    case = conn.execute("SELECT * FROM cases WHERE id=?", (case_id,)).fetchone()
+    if not case:
+        raise HTTPException(404, "Случай не найден")
+    _refund(case, "analyst")
+    return _analyst_case(case_id)
 
 
 @app.post("/cases/{case_id}/insist")
@@ -713,19 +869,29 @@ def _case_view(case) -> dict:
     inc = conn.execute("SELECT amount, created_at FROM transfers WHERE id=?",
                        (case["incoming_transfer_id"],)).fetchone()
     out = conn.execute("SELECT amount, created_at FROM transfers WHERE id=?", (case["transfer_id"],)).fetchone()
-    if out:
+    first = json.loads(case["reasons"])[0].get("code")
+    if first == "self_report":
+        summary = t("summary_self")
+    elif out:
         gap = int((datetime.fromisoformat(out["created_at"]) - datetime.fromisoformat(inc["created_at"])).total_seconds() // 60)
         summary = t("summary", inc=_money(inc["amount"]), gap=_minutes_text(gap), out=_money(out["amount"]))
-    elif json.loads(case["reasons"])[0].get("code") == "linked":
+    elif first == "linked":
         summary = t("summary_linked")
     else:
         summary = t("summary_holder", inc=_money(inc["amount"]))
+    partial = case["scope"] == "partial"
+    summary += " " + (t("summary_partial", m=_money(case["frozen"])) if partial else t("summary_full"))
     docs = _documents(case["id"], for_client=True)
     have = {d["kind"] for d in docs}
+    refundable = _refundable(case) if case["status"] in ("open", "under_review") else 0
     return {
         "case_id": case["id"],
         "status": case["status"],
         "status_text": t("status." + case["status"]),
+        "scope": case["scope"],
+        "frozen": case["frozen"] if partial else 0,
+        # Клиент может сам вернуть пострадавшему замороженные деньги, не дожидаясь решения банка.
+        "refundable": refundable,
         "summary": summary,
         "reasons": i18n.reasons(json.loads(case["reasons"])),
         "explanation": case["explanation"],
@@ -985,14 +1151,14 @@ def _clearance_view(case_id: int) -> dict | None:
 def _page(title: str, body: str) -> RawResponse:
     html_doc = f"""<!DOCTYPE html><html lang="{i18n.lang.get()}"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1"><title>{escape(title)}</title>
-<style>body{{margin:0;background:#f3f5f4;color:#14201b;font:16px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}}
+<style>body{{margin:0;background:#f5f5fa;color:#1d1d1e;font:16px/1.5 "Roboto Flex",Roboto,"Segoe UI",system-ui,-apple-system,sans-serif}}
 main{{max-width:720px;margin:24px auto;background:#fff;border-radius:16px;padding:28px 24px}}
-h1{{font-size:22px;margin:0 0 4px;color:#0b6b4f}} .muted{{color:#66736d;font-size:14px}}
-.ok{{background:#e6f4ee;color:#0b6b4f;border-radius:12px;padding:12px 14px;font-weight:600}}
-.bad{{background:#fdecea;color:#b3261e;border-radius:12px;padding:12px 14px;font-weight:600}}
-dl{{display:grid;grid-template-columns:max-content 1fr;gap:6px 16px;margin:16px 0}} dt{{color:#66736d}} dd{{margin:0}}
-.demo{{border:1px dashed #b3261e;color:#b3261e;border-radius:10px;padding:8px 12px;font-size:13px;margin-top:20px}}
-button{{font:inherit;border:0;border-radius:10px;padding:10px 14px;background:#0b6b4f;color:#fff;cursor:pointer}}
+h1{{font-size:22px;margin:0 0 4px;color:#1d1d1e}} .muted{{color:#7f8085;font-size:14px}}
+.ok{{background:#e6f7f0;color:#00875c;border-radius:12px;padding:12px 14px;font-weight:600}}
+.bad{{background:#fdeeee;color:#c62828;border-radius:12px;padding:12px 14px;font-weight:600}}
+dl{{display:grid;grid-template-columns:max-content 1fr;gap:6px 16px;margin:16px 0}} dt{{color:#7f8085}} dd{{margin:0}}
+.demo{{border:1px dashed #d8d8dd;color:#7f8085;border-radius:10px;padding:8px 12px;font-size:13px;margin-top:20px}}
+button{{font:inherit;font-weight:500;border:0;border-radius:12px;padding:12px 16px;background:#00ab75;color:#fff;cursor:pointer}}
 @media print{{body{{background:#fff}} main{{margin:0}} button{{display:none}}}}</style></head>
 <body><main>{body}</main></body></html>"""
     return RawResponse(html_doc, media_type="text/html; charset=utf-8", headers={"Cache-Control": "no-store"})
@@ -1027,8 +1193,18 @@ def certificate(cid: int, request: Request, s: dict = Depends(session)):
 def verify_certificate(code: str):
     """Проверка справки без входа: другой банк или работодатель вводит код с документа."""
     code = code.strip().upper()
-    row = conn.execute("SELECT * FROM clearances WHERE code=?", (code,)).fetchone() \
-        if re.fullmatch(r"[0-9A-F]{8}", code) else None
+    ok = bool(re.fullmatch(r"[0-9A-F]{8}", code))
+    row = conn.execute("SELECT * FROM clearances WHERE code=?", (code,)).fetchone() if ok else None
+    report = conn.execute("SELECT * FROM self_reports WHERE code=?", (code,)).fetchone() if ok and not row else None
+    if report:
+        # Подтверждение обращения: кто и когда сам сообщил банку. Подробностей страница не показывает.
+        c = _client(report["client_id"])
+        body = f"""<h1>{escape(t("sr.check"))}</h1><p class="ok">{escape(t("sr.valid"))}</p>
+<dl><dt>{escape(t("cert.number"))}</dt><dd>{escape(_self_report_number(report))}</dd>
+<dt>{escape(t("sr.at"))}</dt><dd>{escape(report["at"][:16].replace("T", " "))}</dd>
+<dt>{escape(t("cert.client"))}</dt><dd>{escape(i18n.name(c["id"], c["name"]).split(" (")[0])}</dd></dl>
+<div class="demo">{escape(t("cert.demo"))}</div>"""
+        return _page(t("sr.check"), body)
     if not row:
         return _page(t("cert.check"), f'<h1>{escape(t("cert.check"))}</h1><p class="bad">{escape(t("cert.unknown"))}</p>'
                                       f'<div class="demo">{escape(t("cert.demo"))}</div>')
@@ -1062,7 +1238,8 @@ def _settle_due():
     now = _now().isoformat()
     for tr in conn.execute("SELECT * FROM transfers WHERE status='pending' AND release_at <= ?", (now,)).fetchall():
         sender, receiver = _client(tr["sender_id"]), _client(tr["receiver_id"])
-        stop = ("sender_blocked" if sender["status"] == "blocked" else
+        # Отложенный перевод всегда идёт новому получателю: при любом ограничении по счёту он не уходит.
+        stop = ("sender_blocked" if sender["status"] != "active" else
                 "receiver_blocked" if receiver["status"] == "blocked" else
                 "receiver_black" if engine.afc_status(conn, receiver["id"]) == "black" else None)
         if stop:
@@ -1161,7 +1338,7 @@ def recruit_return_all(s: dict = Depends(as_client)):
     sig = _recruit_view(cid)
     if not sig:
         raise HTTPException(409, t("recruit_none"))
-    available = _client(cid)["balance"] - _held_sum(cid)
+    available = max(0, _available(cid))
     if available < sig["amount"]:
         raise HTTPException(400, t("return_no_funds", available=_money(available), amount=_money(sig["amount"])))
     for tid in sig["incoming_ids"]:
@@ -1180,6 +1357,97 @@ def recruit_dismiss(s: dict = Depends(as_client)):
                  (cid, _now().isoformat()))
     log(f"client:{cid}", "recruit_dismissed", None, None, senders=sig["senders"], amount=sig["amount"])
     return {"ok": True}
+
+
+# ---------- «Меня втянули в схему»: клиент сам сообщает банку ----------
+
+class SelfReportIn(BaseModel):
+    kind: str                       # card | transit | offer
+    details: str = Field("", max_length=3000)
+
+
+def _self_report_number(row) -> str:
+    return f"СО-{row['at'][:4]}-{row['id']:05d}"
+
+
+def _self_report_view(cid: int) -> dict | None:
+    row = conn.execute("SELECT * FROM self_reports WHERE client_id=? ORDER BY id DESC LIMIT 1", (cid,)).fetchone()
+    if not row:
+        return None
+    return {"id": row["id"], "kind": row["kind"], "at": row["at"], "number": _self_report_number(row),
+            "code": row["code"]}
+
+
+@app.post("/self-report")
+def self_report(body: SelfReportIn, s: dict = Depends(as_client)):
+    """Клиент сам рассказывает банку, что его втянули в схему, пока на него никто не пожаловался.
+
+    Передал карту или доступ: счёт закрывается целиком, потому что им управляет чужой человек.
+    Принимал и пересылал: замораживаются только чужие деньги на счёте. Только предложили: ограничений нет.
+    Обращение сразу попадает сотруднику банка, клиент получает подтверждение с датой и кодом проверки.
+    """
+    cid, now = s["client_id"], _now()
+    if body.kind not in SELF_REPORT_KINDS:
+        raise HTTPException(400, t("bad_input"))
+    if _client(cid)["status"] != "active":
+        raise HTTPException(409, t("sr.restricted"))
+    details = body.details.strip()[:2000]
+    if body.kind != "offer" and len(details) < 20:
+        raise HTTPException(400, t("sr.short"))
+    while True:
+        code = secrets.token_hex(4).upper()
+        if not conn.execute("SELECT 1 FROM clearances WHERE code=? UNION SELECT 1 FROM self_reports WHERE code=?",
+                            (code, code)).fetchone():
+            break
+    case_id = None
+    if body.kind != "offer":
+        # Чужие деньги, которые ещё на счёте, и последняя пересылка: по ней сотрудник увидит карту сборщика.
+        foreign = engine._stranger_incomings(conn, cid, now)
+        episode = (engine.forward_episodes(conn, cid, now) or [None])[-1]
+        inc_id = episode["incoming_id"] if episode else max((i["id"] for i in foreign), default=None)
+        on_account = sum(i["amount"] for i in foreign if not engine.find_forward(conn, cid, i))
+        frozen = max(0, min(on_account, _available(cid)))
+        scope = "full" if body.kind == "card" else "partial"
+        reasons = [{"code": "self_report", "points": 0, "text": "Клиент сам сообщил банку: " + SELF_REPORT_KINDS[body.kind][0].lower() + SELF_REPORT_KINDS[body.kind][1:]}]
+        case_id = conn.execute(
+            """INSERT INTO cases(client_id,transfer_id,incoming_transfer_id,kind,score,reasons,status,explanation,
+                                 submitted_at,due_at,created_at,scope,frozen)
+               VALUES(?,?,?,'block',0,?,'under_review',?,?,?,?,?,?)""",
+            (cid, episode["outgoing_id"] if episode else None, inc_id, json.dumps(reasons, ensure_ascii=False),
+             details, now.isoformat(), (now + timedelta(days=APPEAL_SLA_DAYS)).isoformat(), now.isoformat(),
+             scope, frozen)).lastrowid
+        _refresh_status(cid)
+        text = ("Клиент сам сообщил, что передал карту или доступ: счёт приостановлен, карта и доступ "
+                "к приложению подлежат перевыпуску (в демо — запись в истории)" if scope == "full" else
+                f"Клиент сам сообщил, что принимал и пересылал чужие деньги: заморожено {_money(frozen)}, "
+                "остальным клиент пользуется, но только для знакомых получателей")
+        log(f"client:{cid}", "self_report", case_id, inc_id, text=text, kind=body.kind, scope=scope)
+    rid = conn.execute("INSERT INTO self_reports(client_id,kind,details,case_id,code,at) VALUES(?,?,?,?,?,?)",
+                       (cid, body.kind, details or None, case_id, code, now.isoformat())).lastrowid
+    if case_id is None:
+        log(f"client:{cid}", "self_report", None, None, kind=body.kind)
+    return {"report": _self_report_view(cid), "text": t("sr.done." + body.kind), "report_id": rid}
+
+
+@app.get("/clients/{cid}/self-report", include_in_schema=False)
+def self_report_page(cid: int, request: Request, s: dict = Depends(session)):
+    """Подтверждение обращения: дата, время и что именно клиент сообщил. Можно приложить к заявлению в полицию."""
+    c = _own_client(s, cid)
+    row = conn.execute("SELECT * FROM self_reports WHERE client_id=? ORDER BY id DESC LIMIT 1", (cid,)).fetchone()
+    if not row:
+        raise HTTPException(404, t("sr.none"))
+    verify = str(request.base_url) + f"verify/{row['code']}"
+    body = f"""<h1>{escape(t("sr.title"))}</h1>
+<div class="muted">№ {escape(_self_report_number(row))} · {escape(row["at"][:16].replace("T", " "))}</div>
+<dl><dt>{escape(t("cert.client"))}</dt><dd>{escape(i18n.name(c["id"], c["name"]))}</dd>
+<dt>{escape(t("sr.what"))}</dt><dd>{escape(t("sr.kind." + row["kind"]))}</dd>
+<dt>{escape(t("sr.before"))}</dt><dd>{escape(t("sr.before_yes"))}</dd></dl>
+{f'<p>{escape(t("sr.words"))} «{escape(row["details"])}»</p>' if row["details"] else ''}
+<p>{escape(t("sr.text"))}</p><p>{escape(t("sr.law"))}</p>
+<p class="muted">{escape(t("sr.verify"))}<br><b>{escape(verify)}</b><br>{escape(t("cert.code"))}: <b>{row["code"]}</b></p>
+<button onclick="print()">{escape(t("cert.print"))}</button>
+<div class="demo">{escape(t("cert.demo"))}</div>"""
+    return _page(t("sr.title"), body)
 
 
 # ---------- Панель аналитика ----------
@@ -1219,6 +1487,9 @@ def _analyst_row(case) -> dict:
         "overdue": bool(_pending(case) and case["due_at"] and case["due_at"] < _now().isoformat()),
         "from_complaint": case["complaint_id"] is not None,
         "hop": case["hop"],
+        "scope": case["scope"] if case["kind"] == "block" else None,
+        "frozen": case["frozen"],
+        "self_reported": json.loads(case["reasons"])[0].get("code") == "self_report",
     }
 
 
@@ -1237,7 +1508,7 @@ def _chain(case) -> list[dict]:
     if case["complaint_id"] is None:
         return []
     rows = conn.execute(
-        """SELECT k.id, k.hop, k.status, k.transfer_id, c.name, i.amount FROM cases k
+        """SELECT k.id, k.hop, k.status, k.transfer_id, k.scope, k.frozen, c.name, i.amount FROM cases k
            JOIN clients c ON c.id=k.client_id JOIN transfers i ON i.id=k.incoming_transfer_id
            WHERE k.complaint_id=? ORDER BY k.hop, k.id""", (case["complaint_id"],)).fetchall()
     victim = conn.execute(
@@ -1247,6 +1518,7 @@ def _chain(case) -> list[dict]:
              "status_text": "Пожаловался на мошенничество"}] + [
         {"case_id": r["id"], "hop": r["hop"], "name": r["name"], "amount": r["amount"],
          "role": "forwarded" if r["transfer_id"] else "holder", "current": r["id"] == case["id"],
+         "scope": r["scope"], "frozen": r["frozen"] if r["status"] in UNRESOLVED else 0,
          "status_text": ANALYST_STATUS.get(("block", r["status"]), STATUS_TEXT.get(r["status"], r["status"]))}
         for r in rows]
 
@@ -1286,7 +1558,26 @@ def _analyst_case(case_id: int) -> dict:
         "certificate": _clearance_view(case_id),
         "recruit_warned": bool(conn.execute(
             "SELECT 1 FROM recruit_marks WHERE client_id=? AND at <= ?", (case["client_id"], case["created_at"])).fetchone()),
+        "refundable": _refundable(case),
+        "complaint": _analyst_complaint(case),
+        "self_report": _analyst_self_report(case),
+        "can_escalate": case["kind"] == "block" and case["scope"] == "partial" and case["status"] in UNRESOLVED,
     }
+
+
+def _analyst_complaint(case) -> dict | None:
+    if case["complaint_id"] is None:
+        return None
+    st = _complaint_state(conn.execute("SELECT * FROM complaints WHERE id=?", (case["complaint_id"],)).fetchone())
+    return {k: st[k] for k in ("amount", "returned", "frozen", "stage")}
+
+
+def _analyst_self_report(case) -> dict | None:
+    row = conn.execute("SELECT * FROM self_reports WHERE case_id=?", (case["id"],)).fetchone()
+    if not row:
+        return None
+    return {"kind": row["kind"], "kind_text": SELF_REPORT_KINDS[row["kind"]], "details": row["details"],
+            "number": _self_report_number(row), "at": row["at"], "code": row["code"]}
 
 
 @app.get("/analyst/cases/{case_id}")
@@ -1308,20 +1599,12 @@ def decide(case_id: int, body: DecisionIn, s: dict = Depends(as_analyst)):
     comment = body.comment.strip()[:1000]
     if body.decision == "reject" and len(comment) < 10:
         raise HTTPException(400, "При отказе напишите клиенту причину")
-    cleared = False
     if case["kind"] == "block":
         status = "unblocked" if body.decision == "approve" else "kept"
-        # Блокировка, которую сотрудник уже оставил в силе, тоже держит счёт: одобрение другой её не снимает.
-        others = conn.execute(
-            """SELECT COUNT(*) AS n FROM cases WHERE client_id=? AND kind='block' AND id != ?
-               AND status IN ('open','under_review','kept')""", (case["client_id"], case_id)).fetchone()["n"]
-        if status == "unblocked" and not others:
-            conn.execute("UPDATE clients SET status='active' WHERE id=?", (case["client_id"],))
-            cleared = True
     else:
         tr = conn.execute("SELECT * FROM transfers WHERE id=?", (case["transfer_id"],)).fetchone()
         if body.decision == "approve":
-            if _client(tr["sender_id"])["status"] == "blocked":
+            if _client(tr["sender_id"])["status"] != "active":
                 raise HTTPException(409, "Счёт клиента приостановлен: перевод можно только отменить. "
                                          "Сначала разберите блокировку")
             if engine.afc_status(conn, tr["receiver_id"]) == "black" or _client(tr["receiver_id"])["status"] == "blocked":
@@ -1337,6 +1620,8 @@ def decide(case_id: int, body: DecisionIn, s: dict = Depends(as_analyst)):
             status = "cancelled"
     conn.execute("UPDATE cases SET status=?, decision_comment=?, decided_at=? WHERE id=?",
                  (status, comment or None, _now().isoformat(), case_id))
+    # Блокировка, которую сотрудник уже оставил в силе, тоже держит счёт: одобрение другой её не снимает.
+    cleared = case["kind"] == "block" and _refresh_status(case["client_id"]) == "active" and status == "unblocked"
     # Вместе с решением сохраняется подсказка, которую видел сотрудник: её потом не пересчитать задним числом.
     role = engine.assess_role(conn, case["client_id"], case, _now())
     log("analyst", "decision", case_id, case["transfer_id"], text=f"Решение: {STATUS_TEXT[status]}",
@@ -1413,9 +1698,23 @@ def suspend_account(cid: int, s: dict = Depends(as_analyst)):
         """INSERT INTO cases(client_id,transfer_id,incoming_transfer_id,kind,score,reasons,created_at)
            VALUES(?,NULL,?,'block',40,?,?)""",
         (cid, inc["id"], json.dumps(reasons, ensure_ascii=False), _now().isoformat())).lastrowid
-    _block_client(cid)
+    _refresh_status(cid)
     log("analyst", "blocked", case_id, inc["id"],
         text=f"Операции приостановлены сотрудником: счёт связан с {len(found['cases'])} случаями")
+    return _analyst_case(case_id)
+
+
+@app.post("/analyst/cases/{case_id}/escalate")
+def escalate(case_id: int, s: dict = Depends(as_analyst)):
+    """Сотрудник не согласен с подсказкой системы: соразмерная блокировка становится полной."""
+    case = conn.execute("SELECT * FROM cases WHERE id=?", (case_id,)).fetchone()
+    if not case:
+        raise HTTPException(404, "Случай не найден")
+    if case["kind"] != "block" or case["scope"] != "partial" or case["status"] not in UNRESOLVED:
+        raise HTTPException(409, "По этому случаю счёт уже приостановлен целиком или ограничения сняты")
+    conn.execute("UPDATE cases SET scope='full' WHERE id=?", (case_id,))
+    _refresh_status(case["client_id"])
+    log("analyst", "escalated", case_id, None)
     return _analyst_case(case_id)
 
 

@@ -102,7 +102,7 @@ def populate(conn, seed: int = 7, now: datetime | None = None, evaluate: bool = 
     with_history=True добавляет историю случаев за 30 дней для панели эффективности (см. app/history.py).
     """
     if reset:
-        for table in ("message_checks", "clearances", "guardians", "recruit_marks", "afc_list", "call_signals", "events", "complaints", "incoming_marks", "documents", "cases", "transfers", "clients", "meta"):
+        for table in ("self_reports", "message_checks", "clearances", "guardians", "recruit_marks", "afc_list", "call_signals", "events", "complaints", "incoming_marks", "documents", "cases", "transfers", "clients", "meta"):
             conn.execute(f"DELETE FROM {table}")
     now = (now or clock.now()).replace(microsecond=0)
     rng = random.Random(seed)
@@ -174,6 +174,8 @@ def _demo_personas(conn, now: datetime):
         (1008, "Инвестплатформа «Профит»", now - timedelta(days=40), 0, "dropper"),
         (1009, "«Безопасный счёт»", now - timedelta(days=3), 0, "dropper"),
         (1010, "Ерлан (нашёл «подработку»)", now - timedelta(days=45), 8000, "honest"),
+        (1011, "Оптовый склад (поставщик Данияра)", now - timedelta(days=1500), 320000, "honest"),
+        (1012, "Тимур (студент, отдал карту «работодателю»)", now - timedelta(days=210), 6000, "honest"),
     ]
     conn.executemany(
         "INSERT INTO clients(id,name,account_opened_at,balance,true_kind) VALUES(?,?,?,?,?)",
@@ -189,8 +191,9 @@ def _demo_personas(conn, now: datetime):
         [(s, r, a, t.isoformat(), sc) for s, r, a, t, sc in tr])
 
     # У Данияра обычная история продавца: оплаты от покупателей и расчёты с поставщиком.
-    for n, (other, amount, incoming) in enumerate([(21, 18000, True), (35, 42000, True), (8, 30000, False),
-                                                   (52, 9500, True), (8, 25000, False), (64, 27000, True)]):
+    # Поставщик — знакомый получатель: ему Данияр сможет платить и при соразмерной блокировке.
+    for n, (other, amount, incoming) in enumerate([(21, 18000, True), (35, 42000, True), (1011, 30000, False),
+                                                   (52, 9500, True), (1011, 25000, False), (64, 27000, True)]):
         pair = (other, 1005) if incoming else (1005, other)
         conn.execute("INSERT INTO transfers(sender_id,receiver_id,amount,created_at,scenario) VALUES(?,?,?,?,?)",
                      (*pair, amount, (now - timedelta(days=60 - 8 * n)).isoformat(), "demo"))
@@ -231,6 +234,16 @@ def _demo_personas(conn, now: datetime):
     for n, (sender, amount) in enumerate([(61, 45000), (66, 60000), (69, 38000)]):
         conn.execute("INSERT INTO transfers(sender_id,receiver_id,amount,created_at,scenario) VALUES(?,?,?,?,?)",
                      (sender, 1010, amount, (now - timedelta(hours=40 - 15 * n)).isoformat(), "demo_in"))
+
+    # Тимур откликнулся на «подработку для студентов» и отдал карту. Обычная студенческая история,
+    # а за последние сутки на карту пришли деньги от двух незнакомых людей.
+    for n, (pair, amount) in enumerate([((17, 1012), 25000), ((1012, 17), 4000), ((17, 1012), 30000),
+                                        ((1012, 23), 6500), ((17, 1012), 25000), ((1012, 23), 3000)]):
+        conn.execute("INSERT INTO transfers(sender_id,receiver_id,amount,created_at,scenario) VALUES(?,?,?,?,?)",
+                     (*pair, amount, (now - timedelta(days=150 - 25 * n)).isoformat(), "demo"))
+    for n, (sender, amount) in enumerate([(72, 40000), (77, 55000)]):
+        conn.execute("INSERT INTO transfers(sender_id,receiver_id,amount,created_at,scenario) VALUES(?,?,?,?,?)",
+                     (sender, 1012, amount, (now - timedelta(hours=20 - 9 * n)).isoformat(), "demo_in"))
 
     # Имитация базы Антифрод-центра: «чёрный» список — подтверждённые мошенники, «серый» — подозрительные.
     conn.executemany("INSERT INTO afc_list(client_id,list,added_at,note) VALUES(?,?,?,?)", [

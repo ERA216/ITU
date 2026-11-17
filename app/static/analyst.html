@@ -5,29 +5,30 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Чистый счёт: панель аналитика</title>
 <style>
-  :root { --bg:#f3f5f4; --card:#fff; --ink:#14201b; --muted:#66736d; --line:#e2e7e4;
-          --brand:#0b6b4f; --warn:#b3261e; --warn-bg:#fdecea; --ok:#0b6b4f; --ok-bg:#e6f4ee; --amber:#7a5200; --amber-bg:#fff4d6; }
+  :root { --bg:#f5f5fa; --card:#fff; --ink:#1d1d1e; --muted:#7f8085; --line:#e7e7eb;
+          --brand:#00ab75; --brand-ink:#00875c; --fill:#f0f0f4; --warn:#c62828; --warn-bg:#fdeeee; --ok:#00875c; --ok-bg:#e6f7f0; --amber:#6b4a00; --amber-bg:#fff5df; }
   * { box-sizing:border-box; }
   body { margin:0; background:var(--bg); color:var(--ink);
-         font:15px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+         font:15px/1.45 "Roboto Flex", Roboto, "Segoe UI", system-ui, -apple-system, sans-serif; }
   header { display:flex; justify-content:space-between; align-items:center; gap:12px; padding:14px 16px; background:#fff; border-bottom:1px solid var(--line); }
-  header b { color:var(--brand); font-size:17px; }
+  header b { color:var(--ink); font-size:17px; font-weight:700; }
   header a { color:var(--muted); font-size:14px; }
   .wrap { display:grid; grid-template-columns:320px 1fr; gap:16px; padding:16px; max-width:1180px; margin:0 auto; }
   @media (max-width:760px) { .wrap { grid-template-columns:1fr; } }
-  h2 { font-size:15px; margin:0 0 8px; }
-  .card { background:var(--card); border-radius:14px; padding:16px; margin-bottom:12px; }
-  .item { display:block; width:100%; text-align:left; background:#fff; border:1px solid var(--line); border-radius:12px;
-          padding:10px 12px; margin-bottom:8px; cursor:pointer; font:inherit; color:inherit; }
+  h2 { font-size:16px; font-weight:700; margin:0 0 10px; }
+  .card { background:var(--card); border-radius:16px; padding:16px; margin-bottom:12px; }
+  .item { display:block; width:100%; text-align:left; background:#fff; border:1px solid transparent; border-radius:12px;
+          padding:12px 14px; margin-bottom:8px; cursor:pointer; font:inherit; color:inherit; }
+  .item:hover { border-color:var(--line); }
   .item.sel { border-color:var(--brand); box-shadow:0 0 0 1px var(--brand); }
-  .item b { display:block; }
+  .item b { display:block; margin-bottom:2px; }
   .muted { color:var(--muted); font-size:13px; }
-  .pill { display:inline-block; font-size:12px; font-weight:600; padding:2px 9px; border-radius:99px; background:var(--line); color:var(--muted); }
+  .pill { display:inline-block; font-size:12px; font-weight:500; padding:2px 8px; border-radius:6px; margin-top:4px; background:var(--fill); color:var(--muted); }
   .pill.unwitting { background:var(--ok-bg); color:var(--ok); }
   .pill.organizer { background:var(--warn-bg); color:var(--warn); }
   .pill.unclear, .pill.wait { background:var(--amber-bg); color:var(--amber); }
   .chain { display:flex; flex-wrap:wrap; align-items:center; gap:8px; }
-  .node { border:1px solid var(--line); border-radius:10px; padding:8px 10px; min-width:0; }
+  .node { background:var(--fill); border-radius:12px; padding:8px 12px; min-width:0; }
   .node b { display:block; overflow-wrap:anywhere; }
   .arrow { text-align:center; font-size:13px; color:var(--muted); font-variant-numeric:tabular-nums; }
   .arrow strong { display:block; color:var(--ink); font-size:14px; }
@@ -36,32 +37,33 @@
   li:first-child { border-top:0; }
   .pts { flex:0 0 38px; font-weight:700; font-variant-numeric:tabular-nums; text-align:right; }
   .plus { color:var(--ok); } .minus { color:var(--warn); }
-  blockquote { margin:6px 0; padding:10px 12px; background:var(--bg); border-radius:10px; overflow-wrap:anywhere; }
-  textarea { width:100%; min-height:70px; padding:10px 12px; border:1px solid var(--line); border-radius:10px; font:inherit; resize:vertical; }
+  blockquote { margin:6px 0; padding:10px 12px; background:var(--fill); border-radius:12px; overflow-wrap:anywhere; }
+  textarea { width:100%; min-height:70px; padding:10px 12px; border:1px solid transparent; border-radius:12px; background:var(--fill); font:inherit; color:inherit; resize:vertical; }
+  textarea:focus, .login input:focus { outline:none; border-color:var(--brand); background:#fff; }
   .actions { display:flex; gap:10px; flex-wrap:wrap; margin-top:10px; }
-  button.act { border:0; border-radius:10px; padding:11px 16px; font:inherit; font-weight:600; cursor:pointer; flex:1 1 180px; }
-  .approve { background:var(--brand); color:#fff; } .reject { background:var(--warn-bg); color:var(--warn); }
-  .note { border-radius:10px; padding:10px 12px; margin-top:10px; background:var(--warn-bg); color:var(--warn); }
+  button.act { border:0; border-radius:12px; padding:12px 16px; font:inherit; font-weight:500; cursor:pointer; flex:1 1 180px; }
+  .approve { background:var(--brand); color:#fff; } .approve:hover { background:#009d6b; } .reject { background:var(--warn-bg); color:var(--warn); }
+  .note { border-radius:12px; padding:10px 12px; margin-top:10px; background:var(--warn-bg); color:var(--warn); }
   .grid2 { display:grid; grid-template-columns:1fr 1fr; gap:12px; }
   @media (max-width:760px) { .grid2 { grid-template-columns:1fr; } }
-  a { color:var(--brand); }
+  a { color:var(--brand-ink); }
   .login { max-width:360px; margin:40px auto; }
-  .login input { width:100%; padding:10px 12px; border:1px solid var(--line); border-radius:10px; font:inherit; margin-top:4px; }
-  .hbtn { border:1px solid var(--line); background:#fff; border-radius:8px; padding:5px 10px; font:inherit; font-size:13px; cursor:pointer; color:var(--muted); }
+  .login input { width:100%; padding:12px 14px; border:1px solid transparent; background:var(--fill); border-radius:12px; font:inherit; margin-top:4px; }
+  .hbtn { border:0; background:var(--fill); border-radius:20px; padding:6px 12px; font:inherit; font-size:13px; cursor:pointer; color:var(--muted); }
   [hidden] { display:none !important; }
   .pill.late { background:var(--warn); color:#fff; }
-  .tabs { display:flex; gap:2px; background:var(--line); border-radius:10px; padding:3px; margin-bottom:10px; }
-  .tabs button { flex:1; border:0; background:none; border-radius:8px; padding:6px 4px; font:inherit; font-size:13px; color:var(--muted); cursor:pointer; }
-  .tabs button[aria-selected="true"] { background:#fff; color:var(--ink); font-weight:600; }
+  .tabs { display:flex; gap:2px; background:var(--line); border-radius:20px; padding:3px; margin-bottom:10px; }
+  .tabs button { flex:1; border:0; background:none; border-radius:16px; padding:6px 4px; font-weight:500; font:inherit; font-size:13px; color:var(--muted); cursor:pointer; }
+  .tabs button[aria-selected="true"] { background:#3a3a3b; color:#fff; }
   .card.linked { border:2px solid var(--warn-bg); }
-  header a { margin-left:10px; }
+  header a { margin-left:14px; text-decoration:none; }
   ol.hops { list-style:none; padding:0; margin:8px 0 0; }
   ol.hops li { display:grid; grid-template-columns:110px 1fr; column-gap:10px; padding:7px 0; border-top:1px solid var(--line); }
   ol.hops li:first-child { border-top:0; }
-  ol.hops li.cur { background:var(--ok-bg); border-radius:8px; padding-left:8px; }
+  ol.hops li.cur { background:var(--ok-bg); border-radius:10px; padding-left:8px; }
   ol.hops .muted { grid-column:2; }
   .hopn { color:var(--muted); font-size:13px; grid-row:span 2; }
-  .linkbtn { border:0; background:none; padding:0; font:inherit; font-weight:600; color:var(--brand); text-decoration:underline; cursor:pointer; text-align:left; }
+  .linkbtn { border:0; background:none; padding:0; font:inherit; font-weight:500; color:var(--brand-ink); text-decoration:none; cursor:pointer; text-align:left; }
   .timeline { margin:6px 0 0; padding:0; list-style:none; }
   .timeline li { display:grid; grid-template-columns:118px 1fr; gap:10px; }
   .timeline .who { color:var(--muted); font-size:13px; }
@@ -92,6 +94,7 @@ const esc = s => String(s ?? '').replace(/[&<>"]/g, ch => ({'&':'&amp;','<':'&lt
 const money = n => Number(n).toLocaleString('ru-RU') + ' ₸';
 const when = s => s.replace('T', ' ').slice(0, 16);
 const KIND = {block: 'Блокировка счёта', intercept: 'Перевод на паузе'};
+const kind = c => c.kind === 'block' && c.scope === 'partial' ? 'Заморожена спорная сумма' : KIND[c.kind];
 const GUARD = {notified: 'узнал(а) об остановке', asked: 'клиент настаивает, ждём подтверждения',
                confirmed: 'подтвердил(а) перевод, решение за сотрудником', cancelled: 'отменил(а) перевод'};
 let current = null;
@@ -124,11 +127,12 @@ async function loadQueue() {
   $('queueTitle').textContent = tab === 'pending' ? `Ждут решения: ${waiting.length}` : `Все случаи: ${all.length}`;
   $('queue').innerHTML = q.map(c => `<button class="item ${c.case_id === current ? 'sel' : ''}" data-id="${c.case_id}">
       <b>${esc(c.client)}</b>
-      <span class="muted">${KIND[c.kind]} · ${when(c.created_at)}</span><br>
+      <span class="muted">${kind(c)} · ${when(c.created_at)}</span><br>
       <span class="pill ${c.role.verdict}">${esc(c.role.label)}</span>
       <span class="pill ${c.needs_decision ? 'wait' : ''}">${esc(c.status_text)}</span>
       ${c.overdue ? '<span class="pill late">Срок ответа прошёл</span>' : ''}
       ${c.from_complaint ? '<span class="pill">По жалобе</span>' : ''}
+      ${c.self_reported ? '<span class="pill unwitting">Сообщил сам</span>' : ''}
     </button>`).join('') || `<div class="card muted">${tab === 'pending' ? 'Все случаи разобраны.' : 'Случаев нет.'}</div>`;
   $('queue').querySelectorAll('.item').forEach(b => b.onclick = () => open(+b.dataset.id));
 }
@@ -163,12 +167,24 @@ async function open(id) {
   $('detail').innerHTML = `
     <div class="card">
       <h2 style="font-size:19px">${esc(c.client)}</h2>
-      <div class="muted">${KIND[c.kind]} · случай №${c.case_id} · счёт открыт ${days(c.account_opened_at)} дн. назад</div>
+      <div class="muted">${kind(c)} · случай №${c.case_id} · счёт открыт ${days(c.account_opened_at)} дн. назад</div>
       <p><span class="pill ${c.role.verdict}" style="font-size:14px;padding:4px 12px">${esc(c.role.label)}</span>
         ${c.overdue ? '<span class="pill late" style="font-size:14px;padding:4px 12px">Срок ответа прошёл</span>' : ''}</p>
       ${c.due_at && c.needs_decision ? `<div class="muted">Клиенту обещан ответ до ${when(c.due_at)}</div>` : ''}
       <div class="muted">Это подсказка по правилам ниже. Решение принимает сотрудник.</div>
     </div>
+    ${c.self_report ? `<div class="card"><h2>Клиент сам сообщил банку</h2>
+      <p><b>${esc(c.self_report.kind_text)}</b></p>
+      ${c.self_report.details ? `<blockquote>${esc(c.self_report.details)}</blockquote>` : ''}
+      <p class="muted">Обращение ${when(c.self_report.at)}, до жалоб и ограничений по счёту. Подтверждение № ${esc(c.self_report.number)}, проверка:
+        <a href="/verify/${esc(c.self_report.code)}" target="_blank" rel="noopener">/verify/${esc(c.self_report.code)}</a></p></div>` : ''}
+    ${c.kind === 'block' ? `<div class="card"><h2>Ограничение по счёту</h2>
+      ${c.scope === 'partial'
+        ? `<p><b>Соразмерная блокировка: заморожено ${money(c.frozen)}.</b> Остальными деньгами клиент пользуется, но переводить может только тем, кому переводил раньше.</p>
+           <p class="muted">${c.self_reported ? 'Клиент сам сообщил о пересылках, поэтому заморожены только чужие деньги.' : 'Система выбрала её, потому что по правилам клиент похож на невольного участника.'} Если вы не согласны, счёт можно закрыть целиком.</p>`
+        : `<p><b>Счёт приостановлен целиком.</b>${c.frozen ? ` Спорных денег на счёте: ${money(c.frozen)}.` : ''}</p>`}
+      ${c.can_escalate ? '<button class="act reject" id="escalate" style="max-width:320px">Приостановить счёт полностью</button>' : ''}
+    </div>` : ''}
     <div class="card">
       <h2>Цепочка переводов</h2>
       <div class="chain">
@@ -195,8 +211,13 @@ async function open(id) {
       <ol class="hops">${c.chain.map(x => `<li class="${x.current ? 'cur' : ''}">
         <span class="hopn">${x.hop === 0 ? 'Пострадавший' : 'Звено ' + x.hop}</span>
         ${x.case_id && !x.current ? `<button class="linkbtn" data-open="${x.case_id}">${esc(x.name)}</button>` : `<b>${esc(x.name)}</b>`}
-        <span class="muted">${x.role === 'victim' ? 'перевёл ' : x.role === 'holder' ? 'деньги остались на счёте: ' : 'получил и переслал '}${money(x.amount)} · ${esc(x.status_text)}</span>
-      </li>`).join('')}</ol></div>` : ''}
+        <span class="muted">${x.role === 'victim' ? 'перевёл ' : x.role === 'holder' ? 'деньги остались на счёте: ' : 'получил и переслал '}${money(x.amount)} · ${esc(x.status_text)}${x.frozen ? ' · заморожено ' + money(x.frozen) : ''}${x.scope === 'partial' ? ' · соразмерная блокировка' : ''}</span>
+      </li>`).join('')}</ol>
+      ${c.complaint ? `<p style="margin:12px 0 0"><b>Пострадавшему возвращено ${money(c.complaint.returned)} из ${money(c.complaint.amount)}.</b>
+        ${c.complaint.frozen ? ` Заморожено в цепочке: ${money(c.complaint.frozen)}.` : ''}</p>` : ''}
+      ${c.refundable ? `<button class="act approve" id="refund" style="max-width:420px;margin-top:10px">Вернуть пострадавшему ${money(c.refundable)} с этого счёта</button>
+        <p class="muted" style="margin:8px 0 0">В банке для этого нужно согласие владельца счёта либо решение суда или органа уголовного преследования. В демо это одна кнопка.</p>` : ''}
+      </div>` : ''}
     <div class="grid2">
       <div class="card"><h2>Роль клиента: что учтено</h2>
         <ul>${c.role.factors.map(f => `<li>${pts(f.points)}<span>${esc(f.text)}</span></li>`).join('')}</ul></div>
@@ -234,6 +255,11 @@ async function open(id) {
     try { const n = await api(`/analyst/accounts/${b.dataset.suspendCard}/suspend`, {}); open(n.case_id); }
     catch (e) { b.disabled = false; alertBox(e.message); }
   });
+  for (const [btn, path] of [['escalate', 'escalate'], ['refund', 'refund']]) if ($(btn)) $(btn).onclick = async () => {
+    $(btn).disabled = true;
+    try { await api(`/analyst/cases/${id}/${path}`, {}); await open(id); }
+    catch (e) { alertBox(e.message); if ($(btn)) $(btn).disabled = false; }
+  };
   $('report').onclick = async () => {
     const r = await fetch(`/analyst/cases/${id}/report`, {method: 'POST'});
     if (!r.ok) return alertBox('Не удалось выгрузить сведения');

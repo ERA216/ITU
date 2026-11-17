@@ -217,7 +217,7 @@ def forward_episodes(conn, client_id: int, until: datetime, days: int = 90) -> l
             continue
         limit = (_dt(inc["created_at"]) + timedelta(hours=LOOKBACK_HOURS)).isoformat()
         out = conn.execute(
-            """SELECT * FROM transfers WHERE sender_id=? AND status='done' AND receiver_id != ?
+            """SELECT * FROM transfers WHERE sender_id=? AND status='done' AND receiver_id != ? AND return_of IS NULL
                AND created_at > ? AND created_at <= ? AND amount BETWEEN ? AND ?
                ORDER BY created_at LIMIT 1""",
             (client_id, inc["sender_id"], inc["created_at"], limit,
@@ -276,6 +276,13 @@ def assess_role(conn, client_id: int, case, now: datetime) -> dict:
     docs = conn.execute("SELECT COUNT(*) AS n FROM documents WHERE case_id=?", (case["id"],)).fetchone()["n"]
     if case["explanation"] and docs:
         add(1, "Клиент сам объяснил ситуацию и приложил документы")
+
+    if conn.execute("SELECT 1 FROM self_reports WHERE client_id=? AND at <= ?",
+                    (client_id, case["created_at"])).fetchone():
+        add(2, "Клиент сам сообщил банку, что его втянули в схему, до жалоб и ограничений")
+    if conn.execute("SELECT 1 FROM events WHERE case_id=? AND action='refunded' AND actor LIKE 'client:%'",
+                    (case["id"],)).fetchone():
+        add(1, "Клиент сам вернул пострадавшему деньги, которые остались на счёте")
 
     if score >= 3:
         verdict, label = "unwitting", "Похоже на невольного участника"

@@ -5,20 +5,21 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Чистый счёт: эффективность</title>
 <style>
-  :root { --bg:#f3f5f4; --card:#fff; --ink:#14201b; --ink2:#3d4a44; --muted:#66736d; --line:#e2e7e4; --grid:#eef1ef;
-          --brand:#0b6b4f; --warn:#b3261e; --warn-bg:#fdecea; --amber-bg:#fff4d6; --amber:#7a5200; }
+  :root { --bg:#f5f5fa; --card:#fff; --ink:#1d1d1e; --ink2:#3a3a3b; --muted:#7f8085; --line:#e7e7eb; --grid:#efeff3;
+          --brand:#00ab75; --warn:#c62828; --warn-bg:#fdeeee; --amber-bg:#fff5df; --amber:#6b4a00; }
   * { box-sizing:border-box; }
-  body { margin:0; background:var(--bg); color:var(--ink); font:15px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  body { margin:0; background:var(--bg); color:var(--ink); font:15px/1.5 "Roboto Flex", Roboto, "Segoe UI", system-ui, -apple-system, sans-serif; }
   header { display:flex; flex-wrap:wrap; justify-content:space-between; align-items:center; gap:12px; padding:14px 16px; background:#fff; border-bottom:1px solid var(--line); }
-  header b { color:var(--brand); font-size:17px; }
-  header a { color:var(--muted); font-size:14px; margin-left:12px; }
+  header b { color:var(--ink); font-size:17px; font-weight:700; }
+  header a { color:var(--muted); font-size:14px; margin-left:14px; text-decoration:none; }
+  header a:hover { color:var(--ink); }
   main { max-width:1040px; margin:0 auto; padding:16px; }
   h1 { font-size:22px; margin:6px 0 4px; }
   h2 { font-size:16px; margin:0 0 10px; }
   .lead { color:var(--ink2); margin:0 0 14px; max-width:780px; }
   .muted { color:var(--muted); font-size:13px; }
   .note { background:var(--amber-bg); color:var(--amber); border-radius:12px; padding:10px 14px; font-size:14px; margin-bottom:14px; }
-  .group { background:var(--card); border-radius:14px; padding:16px; margin-bottom:14px; }
+  .group { background:var(--card); border-radius:16px; padding:16px; margin-bottom:14px; }
   .tiles { display:grid; grid-template-columns:repeat(auto-fit, minmax(200px, 1fr)); gap:16px; }
   .tile .label { color:var(--muted); font-size:13px; }
   .tile .value { font-size:28px; font-weight:650; font-variant-numeric:tabular-nums; line-height:1.2; margin:2px 0; }
@@ -137,6 +138,9 @@ function drawBars(host, data) {
     tile('Честный клиент ждал решения', hrs(m.release_wait_hours), 'медиана от остановки до разрешения');
   $('appeals').innerHTML =
     tile('Жалоб от пострадавших', num(m.complaints), `всего приостановлено счетов: ${num(m.blocks)}`) +
+    tile('Возвращено пострадавшим', compact(m.victim_refund_amount), `${num(m.victim_refunds)} возвратов замороженных денег по жалобам`) +
+    tile('Соразмерных блокировок', num(m.partial_blocks), 'заморожена только спорная сумма, счётом клиент пользуется') +
+    tile('Клиенты сообщили сами', num(m.self_reports), 'через «Меня втянули в схему», до жалоб и блокировок') +
     tile('Апелляций рассмотрено', `${num(m.appeals_decided)} из ${num(m.appeals)}`, `сейчас просрочено: ${num(m.appeals_overdue)}`) +
     tile('Время ответа на апелляцию', hrs(m.appeal_hours_median), `медиана по ${num(m.appeals_decided)} апелляциям; в срок 3 дня: ${pct(m.appeals_in_time_share)}`) +
     tile('Ограничения сняты', pct(m.unblocked_share), `из ${num(m.appeals_decided)} рассмотренных: клиент оказался невольным участником`) +

@@ -24,6 +24,7 @@ _conn.close()
 
 STUDENT, STRANGER, DROP_CARD, MOM, SELLER, VICTIM, TRANSIT = 1001, 1002, 1003, 1004, 1005, 1006, 1007
 FAKE_INVEST, SAFE_ACCOUNT = 1008, 1009
+RECRUIT, SUPPLIER, CARD_GIVER = 1010, 1011, 1012
 PNG = b"\x89PNG\r\n\x1a\n" + b"0" * 20
 B64 = lambda data: base64.b64encode(data).decode()  # noqa: E731
 
@@ -193,7 +194,7 @@ def test_analyst_code_is_checked_and_rate_limited():
 def test_empty_database_is_filled_on_first_request(tmp_path):
     main.conn.close()
     main.conn = db.connect(str(tmp_path / "empty.db"))
-    assert len(TestClient(main.app).get("/demo/clients").json()) == 10
+    assert len(TestClient(main.app).get("/demo/clients").json()) == 12
 
 
 def test_stale_demo_data_is_recreated():
@@ -253,7 +254,7 @@ def test_blocked_client_appeals_and_analyst_decides():
     sel, an = client(SELLER), analyst()
     assert send(sel, MOM, 1000).json()["status"] == "done"      # до жалобы Данияр ничего не знает
     block_seller()
-    assert send(sel, MOM, 1000).status_code == 403
+    assert send(sel, DROP_CARD, 1000).status_code == 403
     case = sel.get(f"/clients/{SELLER}/case").json()
     assert case["status"] == "open" and "200 000 ₸" in case["summary"] and "40 мин" in case["summary"]
     cid = case["case_id"]
@@ -407,7 +408,7 @@ def test_old_database_is_rebuilt(tmp_path):
     old.close()
     main.conn.close()
     main.conn = db.connect(str(path))
-    assert len(TestClient(main.app).get("/demo/clients").json()) == 10
+    assert len(TestClient(main.app).get("/demo/clients").json()) == 12
 
 
 def test_quality_page_is_served_with_current_threshold():
@@ -519,6 +520,8 @@ def test_demo_balances_match_the_transfers():
 def test_times_are_kazakhstan_time_even_on_a_utc_server(monkeypatch):
     import time
     from app import clock
+    if not hasattr(time, "tzset"):
+        pytest.skip("в Windows нельзя сменить часовой пояс процесса")
     monkeypatch.setenv("TZ", "UTC")
     time.tzset()
     try:
@@ -728,7 +731,7 @@ def test_kept_block_survives_approval_of_another_case():
     main.conn.commit()
     second = main.conn.execute("SELECT MAX(id) FROM cases").fetchone()[0]
     assert a.post(f"/analyst/cases/{second}/decision", json={"decision": "approve"}).status_code == 200
-    assert account(client(SELLER), SELLER)["status"] == "blocked"
+    assert account(client(SELLER), SELLER)["status"] == "limited"
 
 
 def test_paused_transfer_to_newly_blacklisted_receiver_cannot_be_released():
@@ -810,7 +813,10 @@ def test_certificate_is_issued_on_unblock_and_verifiable():
     assert "действительна" in check.text and "маркетплейсе" not in check.text
     assert "не найдена" in TestClient(main.app).get("/verify/ZZZZ<b>").text
     # Счёт снова приостановили: справка отзывается.
-    main._block_client(SELLER)
+    main.conn.execute(
+        """INSERT INTO cases(client_id,incoming_transfer_id,kind,score,reasons,created_at)
+           SELECT client_id,incoming_transfer_id,'block',40,reasons,created_at FROM cases WHERE id=?""", (case,))
+    main._refresh_status(SELLER)
     main.conn.commit()
     assert "недействительна" in TestClient(main.app).get(f"/verify/{cert['code']}").text
     assert seller.get(f"/clients/{SELLER}/certificate").status_code == 404
@@ -1012,3 +1018,198 @@ def test_guardian_can_cancel_cooling_transfer():
 def test_returning_foreign_money_by_hand_is_not_delayed():
     st = client(STUDENT)
     assert send(st, STRANGER, 150000).json()["status"] == "done"
+
+
+# ---------- Соразмерная блокировка ----------
+
+def test_unwitting_forwarder_gets_only_the_disputed_sum_frozen():
+    sel, an = client(SELLER), analyst()
+    before = account(sel, SELLER)["available"]
+    block_seller()
+    acc = account(sel, SELLER)
+    # Данияр получил 200 000 и переслал 195 000: на счёте осталось 5 000 чужих, их и замораживаем.
+    assert acc["status"] == "limited" and acc["frozen"] == 5000 and acc["available"] == before - 5000
+    case = sel.get(f"/clients/{SELLER}/case").json()
+    assert case["scope"] == "partial" and case["frozen"] == 5000 and "5 000 ₸" in case["summary"]
+    # Знакомому поставщику платить можно, новым получателям нельзя, замороженное потратить нельзя.
+    assert send(sel, SUPPLIER, 10000).json()["status"] == "done"
+    assert send(sel, MOM, 1000).status_code == 403
+    assert send(sel, SUPPLIER, acc["available"]).status_code == 400
+    # Карта, на которой лежат деньги, по правилам не похожа на невольного участника: счёт закрыт целиком.
+    assert account(an, DROP_CARD)["status"] == "blocked"
+    card = an.get(f"/analyst/cases/{case['case_id']}").json()
+    assert card["scope"] == "partial" and card["can_escalate"]
+    assert card["history"][-1]["details"]["scope"] == "partial"
+
+
+def test_analyst_can_turn_partial_freeze_into_full_block():
+    sel, an = client(SELLER), analyst()
+    block_seller()
+    cid = sel.get(f"/clients/{SELLER}/case").json()["case_id"]
+    assert client(MOM).post(f"/analyst/cases/{cid}/escalate").status_code == 401
+    card = an.post(f"/analyst/cases/{cid}/escalate").json()
+    assert card["scope"] == "full" and card["client_status"] == "blocked" and not card["can_escalate"]
+    assert send(sel, SUPPLIER, 1000).status_code == 403
+    assert an.post(f"/analyst/cases/{cid}/escalate").status_code == 409
+    assert card["history"][-1]["action"] == "escalated"
+
+
+def test_partial_freeze_is_lifted_with_certificate():
+    seller, a, case = _unblock_seller()
+    acc = account(seller, SELLER)
+    assert acc["status"] == "active" and acc["frozen"] == 0
+    assert send(seller, MOM, 1000).json()["status"] == "done"
+
+
+def test_cooling_transfer_of_a_limited_client_does_not_leave():
+    sel = client(SELLER)
+    r = send(sel, MOM, 20000).json()                       # новый получатель, но сумма небольшая: уходит сразу
+    assert r["status"] == "done"
+    tid = main.conn.execute(
+        """INSERT INTO transfers(sender_id,receiver_id,amount,created_at,status,release_at)
+           VALUES(?,?,10000,?,'pending',?)""",
+        (SELLER, STUDENT, main._now().isoformat(), (main._now() + timedelta(minutes=30)).isoformat())).lastrowid
+    main.conn.commit()
+    block_seller()
+    # Срок охлаждения вышел уже после заморозки: перевод не уходит.
+    main.conn.execute("UPDATE transfers SET release_at=? WHERE id=?",
+                      ((main._now() - timedelta(minutes=1)).isoformat(), tid))
+    main.conn.commit()
+    account(sel, SELLER)
+    assert main.conn.execute("SELECT status FROM transfers WHERE id=?", (tid,)).fetchone()["status"] == "cancelled"
+
+
+# ---------- Пострадавший: статус жалобы и возврат денег ----------
+
+def test_victim_sees_complaint_status_and_gets_the_money_back():
+    an = analyst()
+    before = account(client(VICTIM), VICTIM)["balance"]
+    victim, tid = block_seller()
+    comp = account(victim, VICTIM)["complaints"][0]
+    assert comp["stage"] == "checking" and comp["frozen"] == 200000 and comp["returned"] == 0
+    assert "200 000 ₸" in comp["text"]
+    queue = {c["client_id"]: c for c in an.get("/analyst/cases").json()}
+    drop, sel_case = queue[DROP_CARD]["case_id"], queue[SELLER]["case_id"]
+    # Сотрудник возвращает то, что осталось на конечной карте.
+    assert an.get(f"/analyst/cases/{drop}").json()["refundable"] == 195000
+    card = an.post(f"/analyst/cases/{drop}/refund").json()
+    assert card["refundable"] == 0 and card["complaint"]["returned"] == 195000
+    assert card["history"][-1]["action"] == "refunded"
+    assert an.post(f"/analyst/cases/{drop}/refund").status_code == 409
+    comp = account(victim, VICTIM)["complaints"][0]
+    assert comp["returned"] == 195000 and comp["frozen"] == 5000 and comp["text"].startswith("Вам уже вернули 195 000 ₸")
+    # Данияр сам возвращает остаток: чужой случай вернуть нельзя.
+    sel = client(SELLER)
+    assert sel.get(f"/clients/{SELLER}/case").json()["refundable"] == 5000
+    assert client(MOM).post(f"/cases/{sel_case}/refund").status_code == 404
+    assert sel.post(f"/cases/{sel_case}/refund").json() == {"status": "refunded", "amount": 5000}
+    assert sel.post(f"/cases/{sel_case}/refund").status_code == 409
+    acc = account(victim, VICTIM)
+    assert acc["balance"] == before + 200000 and acc["complaints"][0]["stage"] == "returned"
+    # Возврат не выглядит для пострадавшего как «чужие деньги» и не считается «возвратом кнопкой».
+    refunds = [t for t in acc["feed"] if t["direction"] == "in" and t["return_of"]]
+    assert len(refunds) == 2 and not any(t["warning"] for t in refunds) and any(t["refund"] for t in refunds)
+    role = an.get(f"/analyst/cases/{sel_case}").json()["role"]
+    assert any("сам вернул" in f["text"] for f in role["factors"])
+    m = an.get("/analyst/metrics").json()
+    assert m["victim_refunds"] == 2 and m["victim_refund_amount"] == 200000 and m["partial_blocks"] == 1
+    # Замороженное ушло пострадавшему: Данияр больше ничего не должен, но ограничения снимает сотрудник.
+    assert account(sel, SELLER)["frozen"] == 0 and account(sel, SELLER)["status"] == "limited"
+
+
+def test_refund_never_exceeds_what_the_victim_sent():
+    an = analyst()
+    victim, tid = block_seller()
+    drop = next(c["case_id"] for c in an.get("/analyst/cases").json() if c["client_id"] == DROP_CARD)
+    # Данияр успел вернуть пострадавшей часть сам: с карты уйдёт не больше остатка долга.
+    main.conn.execute(
+        "INSERT INTO transfers(sender_id,receiver_id,amount,created_at,status,return_of) VALUES(?,?,?,?,'done',?)",
+        (SELLER, VICTIM, 50000, main._now().isoformat(), tid))
+    main.conn.commit()
+    assert an.post(f"/analyst/cases/{drop}/refund").json()["complaint"]["returned"] == 200000
+    assert account(victim, VICTIM)["complaints"][0]["stage"] == "returned"
+
+
+def test_complaint_status_when_money_is_still_with_the_receiver():
+    stranger, st = client(STRANGER), client(STUDENT)
+    tid = feed_item(st, STUDENT, STRANGER)["id"]
+    stranger.post(f"/transfers/{tid}/complaint")
+    assert account(stranger, STRANGER)["complaints"][0]["stage"] == "warned"
+    st.post(f"/incoming/{tid}/return")
+    assert account(stranger, STRANGER)["complaints"][0]["stage"] == "returned"
+
+
+# ---------- «Меня втянули в схему» ----------
+
+WORDS = "В чате предложили подработку, я отдал карту и пароль от приложения куратору."
+
+
+def test_self_report_about_a_handed_over_card_closes_the_account_and_gives_a_confirmation():
+    tim, an = client(CARD_GIVER), analyst()
+    assert tim.post("/self-report", json={"kind": "card", "details": "коротко"}).status_code == 400
+    assert tim.post("/self-report", json={"kind": "nope", "details": WORDS}).status_code == 400
+    r = tim.post("/self-report", json={"kind": "card", "details": WORDS}).json()
+    assert r["report"]["number"].startswith("СО-") and "приостановлен" in r["text"]
+    assert account(tim, CARD_GIVER)["status"] == "blocked"
+    case = tim.get(f"/clients/{CARD_GIVER}/case").json()
+    assert case["status"] == "under_review" and case["due_at"] and case["summary"].startswith("Вы сами сообщили")
+    page = tim.get(f"/clients/{CARD_GIVER}/self-report")
+    assert page.status_code == 200 and r["report"]["number"] in page.text and "232-1" in page.text
+    assert "Решение принимают правоохранительные органы" in page.text and "куратору" in page.text
+    assert client(MOM).get(f"/clients/{CARD_GIVER}/self-report").status_code == 403
+    check = TestClient(main.app).get(f"/verify/{r['report']['code']}")
+    assert "клиент сам обратился" in check.text and "куратору" not in check.text and "студент" not in check.text
+    # Сотрудник видит обращение в очереди, слова клиента и учитывает их в подсказке.
+    row = next(c for c in an.get("/analyst/cases").json() if c["client_id"] == CARD_GIVER)
+    assert row["self_reported"] and row["needs_decision"] and row["role"]["verdict"] == "unwitting"
+    card = an.get(f"/analyst/cases/{row['case_id']}").json()
+    assert card["self_report"]["kind"] == "card" and card["self_report"]["details"] == WORDS
+    assert card["frozen"] == 95000 and card["history"][0]["action"] == "self_report"
+    # Повторно, пока идёт проверка, сообщить нельзя; после решения сотрудника счёт открывается со справкой.
+    assert tim.post("/self-report", json={"kind": "card", "details": WORDS}).status_code == 409
+    done = an.post(f"/analyst/cases/{row['case_id']}/decision", json={"decision": "approve"}).json()
+    assert done["client_status"] == "active" and done["certificate"]["valid"]
+    assert an.get("/analyst/metrics").json()["self_reports"] == 1
+
+
+def test_self_report_about_transit_freezes_only_foreign_money():
+    er = client(RECRUIT)
+    before = account(er, RECRUIT)["available"]
+    r = er.post("/self-report", json={"kind": "transit", "details": WORDS}).json()
+    assert "только чужие деньги" in r["text"]
+    acc = account(er, RECRUIT)
+    assert acc["status"] == "limited" and acc["frozen"] == 143000 and acc["available"] == before - 143000
+    assert acc["self_report"]["kind"] == "transit" and acc["recruit"] is not None
+    assert send(er, MOM, 1000).status_code == 403            # новый получатель
+    assert er.post("/recruit/return-all").status_code == 400  # замороженное уходит только по решению банка
+
+
+def test_self_report_about_an_offer_changes_nothing():
+    st = client(STUDENT)
+    r = st.post("/self-report", json={"kind": "offer"}).json()
+    assert "Ограничений по вашему счёту нет" in r["text"]
+    assert account(st, STUDENT)["status"] == "active"
+    assert analyst().get("/analyst/cases").json() == [c for c in analyst().get("/analyst/cases").json()
+                                                      if c["client_id"] != STUDENT]
+    # Если случай всё же возникнет, сотрудник увидит, что клиент предупреждал банк заранее.
+    held = send(st, DROP_CARD, 150000).json()
+    st.post(f"/cases/{held['case_id']}/insist")
+    role = analyst().get(f"/analyst/cases/{held['case_id']}").json()["role"]
+    assert any("сам сообщил банку" in f["text"] for f in role["factors"])
+
+
+def test_restricted_client_cannot_self_report_and_kazakh_texts():
+    block_seller()
+    sel = client(SELLER)
+    assert sel.post("/self-report", json={"kind": "transit", "details": WORDS}).status_code == 409
+    sel.cookies.set("ca_lang", "kk")
+    case = sel.get(f"/clients/{SELLER}/case").json()
+    assert "тек даулы соманы бұғаттады" in case["summary"]
+    assert send(sel, MOM, 1000).json()["detail"].startswith("Банк мән-жайын анықтап жатқанда")
+    victim = client(VICTIM)
+    victim.cookies.set("ca_lang", "kk")
+    assert account(victim, VICTIM)["complaints"][0]["text"].startswith("Банк мән-жайын анықтап жатыр")
+    tim = client(CARD_GIVER)
+    tim.cookies.set("ca_lang", "kk")
+    assert tim.post("/self-report", json={"kind": "card", "details": WORDS}).json()["text"].startswith("Хабарлағаныңызға")
+    assert "құқық қорғау" in tim.get(f"/clients/{CARD_GIVER}/self-report").text

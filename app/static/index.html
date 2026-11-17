@@ -5,98 +5,117 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Чистый счёт</title>
 <style>
-  :root { --bg:#f3f5f4; --card:#fff; --ink:#14201b; --muted:#66736d; --line:#e2e7e4;
-          --brand:#0b6b4f; --warn:#b3261e; --warn-bg:#fdecea; --ok:#0b6b4f; --ok-bg:#e6f4ee; }
+  /* Цвета и формы как в приложении bcc.kz: светло-серый фон, белые карточки, зелёный акцент. */
+  :root { --bg:#f5f5fa; --card:#fff; --ink:#1d1d1e; --ink2:#3a3a3b; --muted:#7f8085; --line:#e7e7eb; --fill:#f0f0f4;
+          --brand:#00ab75; --brand-ink:#00875c; --brand-bg:#e6f7f0;
+          --warn:#c62828; --warn-bg:#fdeeee; --amber:#6b4a00; --amber-bg:#fff5df; --blue:#1f3a8a; --blue-bg:#eef2fd;
+          --ok:#00875c; --ok-bg:#e6f7f0; }
   * { box-sizing:border-box; }
   body { margin:0; background:var(--bg); color:var(--ink);
-         font:16px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
-  .phone { max-width:420px; margin:0 auto; min-height:100vh; padding:16px; }
-  header { display:flex; justify-content:space-between; align-items:center; gap:12px; margin-bottom:12px; }
-  header b { font-size:18px; color:var(--brand); }
-  select, input, button { font:inherit; }
-  select, input { width:100%; padding:10px 12px; border:1px solid var(--line); border-radius:10px; background:#fff; }
-  header select { width:auto; max-width:60%; }
+         font:16px/1.45 "Roboto Flex", Roboto, "Segoe UI", system-ui, -apple-system, sans-serif;
+         -webkit-font-smoothing:antialiased; }
+  .phone { max-width:420px; margin:0 auto; min-height:100vh; padding:12px 16px 32px; }
+  header { display:flex; justify-content:space-between; align-items:center; gap:12px; padding:6px 0 10px; }
+  header b { font-size:20px; font-weight:700; letter-spacing:-.01em; color:var(--ink); white-space:nowrap; }
+  select, input, button { font:inherit; color:inherit; }
+  select, input { width:100%; padding:12px 14px; border:1px solid transparent; border-radius:12px; background:var(--fill); }
+  select:focus, input:focus, textarea:focus { outline:none; border-color:var(--brand); background:#fff; }
+  header select { width:auto; max-width:62%; padding:8px 12px; font-size:14px; font-weight:500; background:#fff; border-radius:20px; }
   .card { background:var(--card); border-radius:16px; padding:16px; margin-bottom:12px; }
-  .balance { font-size:30px; font-weight:700; font-variant-numeric:tabular-nums; }
+  .balance { font-size:32px; font-weight:700; letter-spacing:-.02em; font-variant-numeric:tabular-nums; margin:2px 0; }
   .muted { color:var(--muted); font-size:14px; }
-  h2 { font-size:16px; margin:0 0 10px; }
-  label { display:block; font-size:14px; color:var(--muted); margin:10px 0 4px; }
-  button { border:0; border-radius:12px; padding:12px 14px; font-weight:600; cursor:pointer; width:100%; }
+  h2 { font-size:18px; font-weight:700; margin:0 0 12px; letter-spacing:-.01em; }
+  label { display:block; font-size:13px; color:var(--muted); margin:12px 0 6px; }
+  button { border:0; border-radius:12px; padding:13px 16px; font-weight:500; cursor:pointer; width:100%; }
   .primary { background:var(--brand); color:#fff; margin-top:14px; }
+  .primary:hover { background:#009d6b; }
   .ghost { background:transparent; color:var(--muted); font-weight:500; }
-  .row { display:flex; justify-content:space-between; gap:12px; padding:10px 0; border-top:1px solid var(--line); }
-  .row:first-of-type { border-top:0; }
+  .row { display:flex; justify-content:space-between; gap:12px; padding:12px 0; border-top:1px solid var(--line); }
+  .row:first-of-type { border-top:0; padding-top:4px; }
   .amt { font-variant-numeric:tabular-nums; white-space:nowrap; font-weight:600; }
   .in { color:var(--ok); }
-  .tag { font-size:12px; padding:2px 8px; border-radius:99px; background:var(--line); color:var(--muted); }
+  .tag { display:inline-block; font-size:12px; font-weight:500; padding:2px 8px; border-radius:6px; background:var(--fill); color:var(--muted); }
   .tag.held { background:var(--warn-bg); color:var(--warn); }
-  .note { border-radius:12px; padding:12px; font-size:14px; margin-top:12px; }
+  .note { border-radius:12px; padding:12px 14px; font-size:14px; margin-top:12px; }
   .note.ok { background:var(--ok-bg); color:var(--ok); }
   .note.err { background:var(--warn-bg); color:var(--warn); }
-  .overlay { position:fixed; inset:0; background:rgba(20,32,27,.55); display:none; align-items:flex-end; justify-content:center; }
+  .overlay { position:fixed; inset:0; background:rgba(29,29,30,.45); display:none; align-items:flex-end; justify-content:center; }
   .overlay.show { display:flex; }
-  .sheet { background:#fff; width:100%; max-width:420px; border-radius:20px 20px 0 0; padding:20px 16px 16px; max-height:92vh; overflow:auto; }
-  .sheet h2 { font-size:20px; color:var(--warn); }
+  .sheet { background:#fff; width:100%; max-width:420px; border-radius:24px 24px 0 0; padding:10px 16px 16px; max-height:92vh; overflow:auto; }
+  .sheet::before { content:""; display:block; width:36px; height:4px; border-radius:2px; background:var(--line); margin:0 auto 14px; }
+  .sheet h2 { font-size:20px; color:var(--ink); }
   .sheet ul { padding-left:20px; margin:10px 0; }
   .sheet li { margin:6px 0; }
-  .law { background:var(--warn-bg); border-radius:12px; padding:12px; font-size:14px; margin:12px 0; }
-  .blocked h2 { color:var(--warn); font-size:18px; }
-  .status { display:inline-block; font-size:13px; font-weight:600; padding:4px 10px; border-radius:99px;
-            background:var(--warn-bg); color:var(--warn); margin-bottom:10px; }
-  .status.review { background:#fff4d6; color:#7a5200; }
+  .sheet .ghost { margin-top:4px; padding:11px 16px; }
+  .law { background:var(--warn-bg); color:var(--warn); border-radius:12px; padding:12px 14px; font-size:14px; margin:12px 0; }
+  .blocked h2 { font-size:18px; margin-top:4px; }
+  .status { display:inline-block; font-size:12px; font-weight:500; padding:3px 10px; border-radius:6px;
+            background:var(--warn-bg); color:var(--warn); margin-bottom:8px; }
+  .status.review { background:var(--amber-bg); color:var(--amber); }
   .status.done { background:var(--ok-bg); color:var(--ok); }
-  .doc { border:1px solid var(--line); border-radius:12px; padding:10px 12px; margin-top:8px; font-size:14px; }
-  .doc b { display:block; font-weight:600; }
-  .doc input { border:0; padding:6px 0 0; }
+  .doc { background:var(--fill); border-radius:12px; padding:10px 12px; margin-top:8px; font-size:14px; }
+  .doc b { display:block; font-weight:500; }
+  .doc input { border:0; padding:6px 0 0; background:none; }
   .doc .have { color:var(--ok); }
-  textarea { width:100%; min-height:96px; padding:10px 12px; border:1px solid var(--line); border-radius:10px; font:inherit; resize:vertical; }
+  textarea { width:100%; min-height:96px; padding:12px 14px; border:1px solid transparent; border-radius:12px; background:var(--fill);
+             font:inherit; color:inherit; resize:vertical; }
   details { margin-top:10px; font-size:14px; }
-  summary { cursor:pointer; color:var(--muted); }
+  summary { cursor:pointer; color:var(--brand-ink); font-weight:500; }
   [hidden] { display:none !important; }
-  button.link { width:auto; padding:0 4px; background:none; color:var(--brand); font-weight:600; text-decoration:underline; }
-  button:disabled { opacity:.6; }
-  .alert { background:#fff4d6; color:#5c3d00; border-radius:16px; padding:16px; margin-bottom:12px; }
+  button.link { width:auto; padding:0 4px; background:none; color:var(--brand-ink); font-weight:500; }
+  button:disabled { opacity:.55; cursor:default; }
+  .alert { background:var(--amber-bg); color:var(--amber); border-radius:16px; padding:16px; margin-bottom:12px; }
   .alert.hot { background:var(--warn-bg); color:var(--warn); }
-  .alert h2 { color:inherit; font-size:17px; }
+  .alert h2 { color:inherit; font-size:17px; margin-bottom:6px; }
   .alert p { margin:6px 0; font-size:15px; }
-  .alert .actions { display:flex; gap:8px; flex-wrap:wrap; margin-top:10px; }
+  .alert .actions { display:flex; gap:8px; flex-wrap:wrap; margin-top:12px; }
   .alert .actions button { flex:1 1 150px; margin:0; }
-  .soft { background:rgba(0,0,0,.06); color:inherit; }
-  .tag.warn { background:#fff4d6; color:#7a5200; }
+  .soft { background:rgba(29,29,30,.06); color:inherit; }
+  .card .soft, .demo .soft { background:var(--fill); color:var(--ink); }
+  .tag.warn { background:var(--amber-bg); color:var(--amber); }
   .confirm { margin-top:6px; font-size:14px; }
-  .confirm button { width:auto; padding:6px 10px; font-size:14px; margin-right:6px; }
-  .langs { display:flex; gap:2px; background:var(--line); border-radius:8px; padding:2px; }
-  .langs button { width:auto; padding:4px 8px; font-size:13px; border-radius:6px; background:none; color:var(--muted); }
-  .langs button[aria-pressed="true"] { background:#fff; color:var(--ink); }
-  .demo { border:1px dashed var(--line); border-radius:12px; padding:12px; margin-top:4px; }
-  .demo button { margin-top:6px; }
+  .confirm button { width:auto; padding:7px 12px; font-size:14px; margin:6px 6px 0 0; }
+  .langs { display:flex; gap:2px; background:var(--line); border-radius:20px; padding:3px; }
+  .langs button { width:auto; padding:5px 12px; font-size:13px; font-weight:500; border-radius:16px; background:none; color:var(--muted); }
+  .langs button[aria-pressed="true"] { background:var(--ink2); color:#fff; }
+  .demo { border:1px dashed #d8d8dd; border-radius:16px; padding:14px; margin-top:4px; }
+  .demo button { margin-top:8px; }
   .alert.call { background:var(--warn); color:#fff; }
-  .top { display:flex; justify-content:space-between; align-items:center; gap:8px; margin:-4px 0 12px; }
-  .alert.guard { background:#e8eefc; color:#1b2f6b; }
+  .top { display:flex; justify-content:space-between; align-items:center; gap:8px; margin:0 0 14px; }
+  .top a { font-size:14px; color:var(--muted) !important; text-decoration:none; }
+  .alert.guard { background:var(--blue-bg); color:var(--blue); }
   .alert.recruit { background:var(--warn-bg); color:var(--warn); }
   .alert ul { margin:6px 0; padding-left:20px; font-size:14px; }
   .cert { background:var(--ok-bg); color:var(--ok); }
   .cert h2 { color:inherit; }
-  a.btn { display:block; text-align:center; text-decoration:none; border-radius:12px; padding:12px 14px; font-weight:600;
+  a.btn { display:block; text-align:center; text-decoration:none; border-radius:12px; padding:13px 16px; font-weight:500;
           background:var(--brand); color:#fff; margin-top:10px; }
   .guardian select { margin-top:6px; }
-  .alert.cool { background:#fff4d6; color:#5c3d00; }
-  .msgres { border-radius:12px; padding:12px; margin-top:12px; font-size:15px; }
+  .alert.cool { background:var(--amber-bg); color:var(--amber); }
+  .msgres { border-radius:12px; padding:12px 14px; margin-top:12px; font-size:15px; }
   .msgres h3 { margin:0 0 6px; font-size:16px; }
   .msgres.danger { background:var(--warn-bg); color:var(--warn); }
-  .msgres.caution { background:#fff4d6; color:#5c3d00; }
+  .msgres.caution { background:var(--amber-bg); color:var(--amber); }
   .msgres.none { background:var(--ok-bg); color:var(--ok); }
   .msgres ol, .msgres ul { margin:6px 0; padding-left:20px; }
-  .msgres .hit { background:rgba(0,0,0,.08); border-radius:6px; padding:0 4px; }
+  .msgres .hit { background:rgba(0,0,0,.08); border-radius:4px; padding:0 4px; }
   .examples { display:flex; flex-wrap:wrap; gap:6px; }
-  .examples button { width:auto; padding:6px 10px; font-size:13px; margin:0; }
+  .examples button { width:auto; padding:7px 12px; font-size:13px; margin:0; border-radius:20px; }
+  .alert.done { background:var(--ok-bg); color:var(--ok); }
+  .opt { display:flex; gap:10px; align-items:flex-start; color:var(--ink); font-size:15px; background:var(--fill);
+         border:1px solid transparent; border-radius:12px; padding:12px; margin:8px 0; cursor:pointer; }
+  .opt:has(input:checked) { border-color:var(--brand); background:#fff; }
+  .opt input { width:auto; margin-top:4px; flex:none; accent-color:var(--brand); }
+  .opt .muted { display:block; }
+  .refund { background:var(--ok-bg); color:var(--ink); border-radius:12px; padding:12px 14px; margin:12px 0; font-size:14px; }
+  .refund button { margin-top:10px; }
 </style>
 </head>
 <body>
 <div class="phone">
   <header><b data-t="app"></b><select id="who"></select></header>
   <div class="top">
-    <a class="muted" href="/analyst" style="color:inherit" data-t="analystLink"></a>
+    <a class="muted" href="/analyst" data-t="analystLink"></a>
     <div class="langs" role="group" aria-label="Тіл / Язык">
       <button data-lang="kk">ҚАЗ</button><button data-lang="ru">РУС</button>
     </div>
@@ -112,6 +131,7 @@
   <div id="coolAlerts"></div>
   <div id="guardAlerts"></div>
   <div id="alerts"></div>
+  <div id="compCards"></div>
   <div class="card cert" id="certCard" hidden></div>
 
   <div class="card blocked" id="blockCard" hidden></div>
@@ -141,6 +161,8 @@
   </div>
 
   <div class="card guardian" id="guardianCard"></div>
+
+  <div class="card" id="selfCard" hidden></div>
 
   <div class="demo">
     <div class="muted" data-t="demoH"></div>
@@ -334,6 +356,34 @@ const T = {
   guardCoolText: ['Получатель: {r}. Перевод уйдёт в {t}. Если это похоже на мошенников, позвоните и отмените перевод.',
                   'Алушы: {r}. Аударым {t} кетеді. Алаяқтарға ұқсаса, қоңырау шалып, аударымды болдырмаңыз.'],
   tagPending: ['уйдёт в {t}', '{t} кетеді'],
+  frozenLine: ['{m} заморожено до решения банка.', '{m} банк шешіміне дейін бұғатталған.'],
+  limitedH: ['Часть денег заморожена', 'Ақшаның бір бөлігі бұғатталған'],
+  refundHint: ['На вашем счёте осталось {m} от перевода человека, которого обманули. Вы можете вернуть их ему уже сейчас, не дожидаясь решения банка. Сотрудник банка это увидит.',
+               'Шотыңызда алданған адамның аударымынан {m} қалды. Оны банк шешімін күтпей, қазір қайтара аласыз. Банк қызметкері мұны көреді.'],
+  refundBtn: ['Вернуть пострадавшему {m}', 'Зардап шеккен адамға {m} қайтару'],
+  refundOk: ['Вернули {m} пострадавшему. Спасибо.', '{m} зардап шеккен адамға қайтарылды. Рахмет.'],
+  compH: ['Ваше обращение о мошенничестве', 'Алаяқтық туралы өтінішіңіз'],
+  compLine: ['Перевод {m}, получатель: {r}.', '{m} аударым, алушы: {r}.'],
+  refundTitle: ['Возврат по вашему обращению', 'Өтінішіңіз бойынша қайтарылды'],
+  srH: ['Вас втянули в схему?', 'Сізді схемаға тартты ма?'],
+  srAbout: ['Если вы отдали кому-то карту, принимали и пересылали чужие деньги или вам предложили такую «подработку», расскажите банку сами. Так вы остановите схему и получите подтверждение, что обратились первыми.',
+            'Біреуге картаңызды берсеңіз, бөтен ақшаны қабылдап, әрі қарай жіберсеңіз немесе сізге осындай «қосымша жұмыс» ұсынылса, банкке өзіңіз айтыңыз. Осылайша схеманы тоқтатып, бірінші болып жүгінгеніңізді растайтын құжат аласыз.'],
+  srOpen: ['Сообщить банку', 'Банкке хабарлау'],
+  srCard: ['Я отдал(а) карту, её данные или доступ к приложению', 'Картамды, оның деректерін немесе қосымшаға кіруді бердім'],
+  srCardHint: ['Счёт приостановим целиком: сейчас им может пользоваться чужой человек.', 'Шотты толық тоқтатамыз: қазір оны бөтен адам пайдалануы мүмкін.'],
+  srTransit: ['Я принимал(а) чужие деньги и пересылал(а) их', 'Бөтен ақшаны қабылдап, әрі қарай жібердім'],
+  srTransitHint: ['Заморозим только чужие деньги, остальным можно пользоваться.', 'Тек бөтен ақшаны бұғаттаймыз, қалғанын пайдалана аласыз.'],
+  srOffer: ['Мне только предложили, я ничего не делал(а)', 'Маған тек ұсынды, мен ештеңе істеген жоқпын'],
+  srOfferHint: ['Ограничений не будет.', 'Шектеу қойылмайды.'],
+  srDetails: ['Кто просил и что вы сделали', 'Кім сұрады және сіз не істедіңіз'],
+  srPh: ['Где нашли предложение, кто с вами связывался, что вы передали или переслали', 'Ұсынысты қайдан таптыңыз, кім хабарласты, не бердіңіз немесе жібердіңіз'],
+  srSend: ['Отправить в банк', 'Банкке жіберу'],
+  srLaw: ['Закон (примечание к статье 232-1 УК РК) предусматривает освобождение от уголовной ответственности для того, кто сделал это впервые, сам заявил об этом и помог раскрытию. Решение принимают правоохранительные органы, а не банк.',
+          'Заң (ҚР ҚК 232-1-бабының ескертпесі) мұны алғаш рет жасаған, бұл туралы өзі мәлімдеген және ашуға көмектескен адамды қылмыстық жауаптылықтан босатуды көздейді. Шешімді банк емес, құқық қорғау органдары қабылдайды.'],
+  srPick: ['Выберите, что произошло', 'Не болғанын таңдаңыз'],
+  srDoneH: ['Вы сообщили банку {d}', 'Сіз банкке {d} хабарладыңыз'],
+  srDoneText: ['Подтверждение № {n}. Его можно распечатать и приложить к заявлению в полицию.', '№ {n} растау. Оны басып шығарып, полицияға арызға қоса беруге болады.'],
+  srDocOpen: ['Открыть подтверждение', 'Растауды ашу'],
   insistOk: ['Перевод остаётся на паузе. Его проверит сотрудник банка, ответ появится в списке операций.',
              'Аударым кідіртілген күйде қалады. Оны банк қызметкері тексереді, жауабы операциялар тізімінде шығады.'],
 };
@@ -379,13 +429,15 @@ async function loadBlock() {
   appeal = await api(`/clients/${me}/case`);
   const cls = {under_review:'review', unblocked:'done'}[appeal.status] || '';
   let html = `<span class="status ${cls}">${esc(appeal.status_text)}</span>
-    <h2>${tr('blockedH')}</h2>
+    <h2>${tr(appeal.scope === 'partial' ? 'limitedH' : 'blockedH')}</h2>
     <p>${esc(appeal.summary)}</p>
     <details><summary>${tr('whatNoticed')}</summary><ul>${appeal.reasons.map(r => `<li>${esc(r.text)}</li>`).join('')}</ul></details>`;
   if (appeal.status === 'under_review' && appeal.due_at) {
     const d = new Date(appeal.due_at).toLocaleDateString(L === 'kk' ? 'kk-KZ' : 'ru-RU', {day:'numeric', month:'long'});
     html += `<p><b>${esc(tr('due', {d}))}</b> ${tr('dueMore')}</p>`;
   }
+  if (appeal.refundable) html += `<div class="refund">${esc(tr('refundHint', {m: money(appeal.refundable)}))}
+      <button class="primary" id="refundBtn">${esc(tr('refundBtn', {m: money(appeal.refundable)}))}</button></div>`;
   if (appeal.can_submit) {
     html += `<h2 style="color:inherit;margin-top:16px">${tr('needH')}</h2>
       <label for="expl">${tr('explLabel')}</label>
@@ -414,6 +466,12 @@ async function loadBlock() {
       await loadBlock();
     } catch (e) { bnote(e.message, 'err'); }
   });
+  const rbtn = $('blockCard').querySelector('#refundBtn');
+  if (rbtn) rbtn.onclick = async () => {
+    rbtn.disabled = true;
+    try { const r = await api(`/cases/${appeal.case_id}/refund`, {}); await load(); bnote(tr('refundOk', {m: money(r.amount)}), 'ok'); }
+    catch (e) { bnote(e.message, 'err'); }
+  };
   const btn = $('blockCard').querySelector('#submitAppeal');
   if (btn) btn.onclick = async () => {
     try { await api(`/cases/${appeal.case_id}/submit`, {explanation: $('expl').value}); await loadBlock(); }
@@ -443,11 +501,12 @@ async function load() {
   catch (e) { if (e.status !== 401 && e.status !== 403) throw e; await loginAs(me); c = await api('/clients/' + me); }
   serverNow = c.now;
   $('balance').textContent = money(c.available);
-  $('heldLine').textContent = c.held ? tr('heldLine', {m: money(c.held)}) : '';
+  $('heldLine').textContent = [c.held ? tr('heldLine', {m: money(c.held)}) : '', c.frozen ? tr('frozenLine', {m: money(c.frozen)}) : ''].filter(Boolean).join(' ');
   renderCall(c.call);
-  const blocked = c.status === 'blocked';
-  $('blockCard').hidden = !blocked; $('transferCard').hidden = blocked;
-  if (blocked) await loadBlock();
+  // blocked: счёт закрыт целиком. limited: заморожена только спорная сумма, переводы знакомым работают.
+  const blocked = c.status === 'blocked', restricted = blocked || c.status === 'limited';
+  $('blockCard').hidden = !restricted; $('transferCard').hidden = blocked;
+  if (restricted) await loadBlock();
   else {
     // Если блокировку только что сняли, говорим об этом клиенту.
     const last = await api(`/clients/${me}/case`).catch(() => null);
@@ -455,7 +514,9 @@ async function load() {
     if (last && last.status === 'unblocked' && !(last.certificate && last.certificate.valid) && !$('note').innerHTML)
       note(tr('unblocked'), 'ok');
   }
-  if (blocked) renderCert(null);
+  if (restricted) renderCert(null);
+  renderComplaints(c.complaints || []);
+  renderSelf(c.self_report, c.status);
   renderGuardRequests(c.guardian_requests || []);
   renderCooling(c.cooling || [], c.guardian_cooling || []);
   loadGuardian();
@@ -466,7 +527,7 @@ async function load() {
   renderAlerts(blocked ? [] : c.feed, c.recruit);   // пока счёт приостановлен, вернуть деньги самому нельзя
   $('feed').innerHTML = c.feed.map(t => {
     const incoming = t.direction === 'in';
-    const title = t.return_of ? tr('returnTitle') : (incoming ? tr('from', {who: t.sender}) : tr('toWho', {who: t.receiver}));
+    const title = t.refund ? tr('refundTitle') : t.return_of ? tr('returnTitle') : (incoming ? tr('from', {who: t.sender}) : tr('toWho', {who: t.receiver}));
     let tag = incoming ? null : heldTag(t);
     if (incoming && t.warning) tag = ['warn', tr('tagMaybeForeign')];
     if (incoming && t.returned) tag = ['', tr('tagReturnedIn')];
@@ -531,6 +592,60 @@ function renderAlerts(feed, recruit) {
     note(tr('knownOk'), 'ok');
     load();
   });
+}
+
+// Что стало с обращением о мошенничестве: где деньги пострадавшего и сколько ему уже вернули.
+function renderComplaints(items) {
+  $('compCards').innerHTML = items.map(p => `
+    <div class="alert ${p.stage === 'returned' ? 'done' : p.stage === 'closed' ? 'hot' : ''}">
+      <h2>${tr('compH')}</h2>
+      <p>${esc(tr('compLine', {m: money(p.amount), r: p.receiver}))}</p>
+      <p><b>${esc(p.text)}</b></p>
+    </div>`).join('');
+}
+
+// «Меня втянули в схему»: клиент сам рассказывает банку и получает подтверждение с датой.
+let selfKey = '', selfMsg = '';
+function renderSelf(rep, status) {
+  const key = JSON.stringify([me, L, rep, status, selfMsg]);
+  if (key === selfKey) return;           // форма не перерисовывается, пока клиент её заполняет
+  selfKey = key;
+  const box = $('selfCard');
+  box.hidden = !rep && status !== 'active';
+  let html = `<h2>${tr('srH')}</h2>`;
+  if (selfMsg) html += `<div class="note ok" style="margin:0 0 12px">${esc(selfMsg)}</div>`;
+  if (rep) {
+    const d = new Date(rep.at).toLocaleString(L === 'kk' ? 'kk-KZ' : 'ru-RU', {day:'numeric', month:'long', hour:'2-digit', minute:'2-digit'});
+    html += `<p><b>${esc(tr('srDoneH', {d}))}</b></p><p class="muted">${esc(tr('srDoneText', {n: rep.number}))}</p>
+      <a class="btn" href="/clients/${me}/self-report" target="_blank" rel="noopener">${tr('srDocOpen')}</a>`;
+  }
+  if (status === 'active') {
+    const opt = (v, t, h) => `<label class="opt"><input type="radio" name="srKind" value="${v}"><span><b>${tr(t)}</b><span class="muted">${tr(h)}</span></span></label>`;
+    html += `<p class="muted"${rep ? ' style="margin-top:14px"' : ''}>${tr('srAbout')}</p>
+      <button class="soft" id="srOpen">${tr('srOpen')}</button>
+      <div id="srForm" hidden>
+        ${opt('card', 'srCard', 'srCardHint')}${opt('transit', 'srTransit', 'srTransitHint')}${opt('offer', 'srOffer', 'srOfferHint')}
+        <label for="srText">${tr('srDetails')}</label>
+        <textarea id="srText" maxlength="2000" placeholder="${esc(tr('srPh'))}"></textarea>
+        <p class="muted">${tr('srLaw')}</p>
+        <button class="primary" id="srSend">${tr('srSend')}</button>
+        <div id="srNote"></div>
+      </div>`;
+  }
+  box.innerHTML = html;
+  if (!$('srOpen')) return;
+  $('srOpen').onclick = () => { $('srForm').hidden = false; $('srOpen').hidden = true; };
+  $('srSend').onclick = async () => {
+    const kind = (box.querySelector('input[name=srKind]:checked') || {}).value;
+    const err = t => $('srNote').innerHTML = `<div class="note err">${esc(t)}</div>`;
+    if (!kind) return err(tr('srPick'));
+    $('srSend').disabled = true;
+    try {
+      const r = await api('/self-report', {kind, details: $('srText').value});
+      selfMsg = r.text; await load();
+      window.scrollTo({top: 0, behavior: 'smooth'});
+    } catch (e) { err(e.message); $('srSend').disabled = false; }
+  };
 }
 
 // Справка о снятии ограничений: её можно открыть, распечатать и показать в другом банке.
@@ -736,6 +851,7 @@ function clearScreen() {
   $('recipientNote').innerHTML = ''; $('callAlert').innerHTML = '';
   $('guardAlerts').innerHTML = ''; $('guardianCard').innerHTML = ''; $('certCard').hidden = true;
   $('coolAlerts').innerHTML = ''; $('msgText').value = ''; $('msgResult').innerHTML = ''; clearTimeout(coolTimer);
+  $('compCards').innerHTML = ''; $('selfCard').hidden = true; selfKey = ''; selfMsg = '';
 }
 $('who').onchange = async () => { clearScreen(); await loginAs(+$('who').value); load(); };
 // Язык хранится в cookie: сервер читает его и отвечает на том же языке.

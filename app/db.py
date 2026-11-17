@@ -10,7 +10,7 @@ CREATE TABLE IF NOT EXISTS clients (
     name TEXT NOT NULL,
     account_opened_at TEXT NOT NULL,
     balance INTEGER NOT NULL DEFAULT 0,
-    status TEXT NOT NULL DEFAULT 'active',      -- active | blocked
+    status TEXT NOT NULL DEFAULT 'active',      -- active | limited (заморожена спорная сумма) | blocked
     true_kind TEXT NOT NULL DEFAULT 'honest'    -- honest | dropper (метка синтетики, банку неизвестна)
 );
 CREATE TABLE IF NOT EXISTS transfers (
@@ -45,6 +45,8 @@ CREATE TABLE IF NOT EXISTS cases (
     due_at TEXT,                        -- до какого момента банк обещал ответить
     guardian_id INTEGER REFERENCES clients(id),  -- доверенное лицо, которому сообщили об остановке
     guardian_state TEXT,                -- notified | asked (клиент настаивает) | confirmed | cancelled
+    scope TEXT NOT NULL DEFAULT 'full', -- блокировка: full — счёт целиком | partial — заморожена только спорная сумма
+    frozen INTEGER NOT NULL DEFAULT 0,  -- сколько денег из цепочки осталось на счёте и заморожено по этому случаю
     created_at TEXT NOT NULL
 );
 CREATE TABLE IF NOT EXISTS complaints (
@@ -106,6 +108,15 @@ CREATE TABLE IF NOT EXISTS message_checks (
     verdict TEXT NOT NULL,              -- danger | caution | none
     at TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS self_reports (
+    id INTEGER PRIMARY KEY,             -- клиент сам сообщил банку, что его втянули в схему
+    client_id INTEGER NOT NULL REFERENCES clients(id),
+    kind TEXT NOT NULL,                 -- card: отдал карту или доступ | transit: принимал и пересылал | offer: только предложили
+    details TEXT,                       -- что клиент рассказал своими словами
+    case_id INTEGER REFERENCES cases(id),
+    code TEXT NOT NULL UNIQUE,          -- код проверки подтверждения
+    at TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS meta (
     key TEXT PRIMARY KEY,
     value TEXT NOT NULL
@@ -123,7 +134,7 @@ CREATE TABLE IF NOT EXISTS documents (
 """
 
 
-SCHEMA_VERSION = 8
+SCHEMA_VERSION = 9
 
 
 def connect(path: str | None = None) -> sqlite3.Connection:
