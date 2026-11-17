@@ -111,7 +111,7 @@
   .refund button { margin-top:10px; }
   /* Раскладка: слева подсказки для показа, справа телефон с экраном клиента. */
   body { background:#e9e9ef; }
-  .app { display:flex; gap:32px; justify-content:center; align-items:flex-start; padding:24px; min-height:100vh; }
+  .app { display:flex; gap:32px; justify-content:center; align-items:flex-start; padding:24px; }
   .demo-panel { width:330px; flex:none; position:sticky; top:24px; }
   .demo-toggle { display:none; }
   .demo-body { background:#fff; border-radius:20px; padding:20px; }
@@ -122,7 +122,7 @@
   .demo-sec { border-top:1px solid var(--line); margin-top:16px; padding-top:14px; }
   .demo-links { display:flex; flex-wrap:wrap; gap:6px 16px; border-top:1px solid var(--line); margin-top:16px; padding-top:14px; }
   .demo-links a { color:var(--brand-ink); font-size:14px; font-weight:500; text-decoration:none; }
-  .device { position:relative; width:400px; flex:none; height:min(860px, calc(100vh - 48px)); background:var(--bg);
+  .device { position:relative; width:400px; flex:none; height:min(860px, calc(100vh - 106px)); background:var(--bg);
             border-radius:40px; box-shadow:0 0 0 10px #1d1d1e, 0 24px 60px rgba(0,0,0,.22); overflow:hidden;
             display:flex; flex-direction:column; }
   .screen { flex:1; overflow-y:auto; padding:18px 16px 24px; scrollbar-width:none; }
@@ -170,11 +170,27 @@
     .demo-panel.open .demo-toggle::after { content:"▴"; }
     .demo-body { display:none; margin-top:8px; }
     .demo-panel.open .demo-body { display:block; }
-    .device { width:auto; height:calc(100dvh - 64px); border-radius:0; box-shadow:none; margin-top:10px; }
+    .device { width:auto; height:calc(100dvh - 196px); min-height:520px; border-radius:0; box-shadow:none; margin-top:10px; }
+  }
+  /* Общее верхнее меню: четыре страницы проекта, текущая выделена. */
+  .topbar { display:flex; align-items:center; gap:16px; flex-wrap:wrap; padding:10px 20px; background:#fff; border-bottom:1px solid #e7e7eb; }
+  .topbar .brand { font-weight:700; font-size:17px; color:#1d1d1e; text-decoration:none; white-space:nowrap; }
+  .pages { display:flex; gap:2px; background:#e7e7eb; border-radius:20px; padding:3px; overflow-x:auto; scrollbar-width:none; }
+  .pages::-webkit-scrollbar { display:none; }
+  .pages a { padding:7px 14px; border-radius:17px; font-size:14px; font-weight:500; color:#5c5d62; text-decoration:none; white-space:nowrap; margin:0; }
+  .pages a:hover { color:#1d1d1e; }
+  .pages a[aria-current="page"] { background:#3a3a3b; color:#fff; }
+  .topbar .tools { margin-left:auto; display:flex; gap:8px; }
+  @media (max-width:700px) {
+    .topbar { padding:10px 12px; gap:8px 10px; }
+    .pages { order:3; width:100%; display:grid; grid-template-columns:1fr 1fr; border-radius:14px; }
+    .pages a { text-align:center; padding:7px 8px; border-radius:11px; }
   }
 </style>
 </head>
 <body>
+<header class="topbar"><a class="brand" href="/" data-t="app">Чистый счёт</a>
+  <nav class="pages" aria-label="Страницы проекта"><a href="/" aria-current="page" data-t="navClient">Экран клиента</a><a href="/analyst" data-t="navStaff">Панель аналитика</a><a href="/analyst/stats" data-t="navStats">Эффективность</a><a href="/quality" data-t="navQuality">Качество движка</a></nav></header>
 <div class="app">
   <aside class="demo-panel" id="demoPanel">
     <button class="demo-toggle" id="demoToggle" data-t="demoToggle"></button>
@@ -197,7 +213,6 @@
           <button class="soft" data-example="job" data-t="exJob"></button>
         </div>
       </div>
-      <nav class="demo-links"><a href="/analyst" data-t="analystLink"></a><a href="/analyst/stats" data-t="statsLink"></a></nav>
     </div>
   </aside>
 
@@ -293,6 +308,10 @@
 const T = {
   app: ['Чистый счёт', 'Таза шот'],
   hello: ['Здравствуйте,', 'Сәлеметсіз бе,'],
+  navClient: ['Экран клиента', 'Клиент экраны'],
+  navStaff: ['Панель аналитика', 'Талдаушы панелі'],
+  navStats: ['Эффективность', 'Тиімділік'],
+  navQuality: ['Качество движка', 'Жүйе сапасы'],
   tabHome: ['Главная', 'Басты бет'],
   tabPay: ['Переводы', 'Аударымдар'],
   tabSafe: ['Защита', 'Қорғау'],

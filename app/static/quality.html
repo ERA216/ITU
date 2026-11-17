@@ -44,10 +44,25 @@
   summary { cursor:pointer; color:var(--muted); font-size:13px; }
   ul.notes { padding-left:18px; margin:6px 0 0; color:var(--ink2); }
   ul.notes li { margin:4px 0; }
+  /* Общее верхнее меню: четыре страницы проекта, текущая выделена. */
+  .topbar { display:flex; align-items:center; gap:16px; flex-wrap:wrap; padding:10px 20px; background:#fff; border-bottom:1px solid #e7e7eb; }
+  .topbar .brand { font-weight:700; font-size:17px; color:#1d1d1e; text-decoration:none; white-space:nowrap; }
+  .pages { display:flex; gap:2px; background:#e7e7eb; border-radius:20px; padding:3px; overflow-x:auto; scrollbar-width:none; }
+  .pages::-webkit-scrollbar { display:none; }
+  .pages a { padding:7px 14px; border-radius:17px; font-size:14px; font-weight:500; color:#5c5d62; text-decoration:none; white-space:nowrap; margin:0; }
+  .pages a:hover { color:#1d1d1e; }
+  .pages a[aria-current="page"] { background:#3a3a3b; color:#fff; }
+  .topbar .tools { margin-left:auto; display:flex; gap:8px; }
+  @media (max-width:700px) {
+    .topbar { padding:10px 12px; gap:8px 10px; }
+    .pages { order:3; width:100%; display:grid; grid-template-columns:1fr 1fr; border-radius:14px; }
+    .pages a { text-align:center; padding:7px 8px; border-radius:11px; }
+  }
 </style>
 </head>
 <body>
-<header><b>Чистый счёт · качество движка</b><span><a href="/">Экран клиента</a><a href="/analyst">Панель аналитика</a></span></header>
+<header class="topbar"><a class="brand" href="/">Чистый счёт</a>
+  <nav class="pages" aria-label="Страницы проекта"><a href="/">Экран клиента</a><a href="/analyst">Панель аналитика</a><a href="/analyst/stats">Эффективность</a><a href="/quality" aria-current="page">Качество движка</a></nav></header>
 <main>
   <h1 id="title">Качество движка перехвата</h1>
   <p class="lead" id="lead">Загружаем результаты…</p>
