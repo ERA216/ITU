@@ -5,8 +5,8 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Чистый счёт: панель аналитика</title>
 <style>
-  :root { --bg:#f5f5fa; --card:#fff; --ink:#1d1d1e; --muted:#7f8085; --line:#e7e7eb;
-          --brand:#00ab75; --brand-ink:#00875c; --fill:#f0f0f4; --warn:#c62828; --warn-bg:#fdeeee; --ok:#00875c; --ok-bg:#e6f7f0; --amber:#6b4a00; --amber-bg:#fff5df; }
+  :root { --bg:#fff; --card:#fff; --ink:#1d1d1e; --muted:#587366; --line:#d6eadf;
+          --brand:#00ab75; --brand-ink:#00875c; --fill:#e6f3ed; --warn:#c62828; --warn-bg:#fdeeee; --ok:#00875c; --ok-bg:#e6f7f0; --amber:#6b4a00; --amber-bg:#fff5df; }
   * { box-sizing:border-box; }
   body { margin:0; background:var(--bg); color:var(--ink);
          font:15px/1.45 "Roboto Flex", Roboto, "Segoe UI", system-ui, -apple-system, sans-serif; }
@@ -16,10 +16,10 @@
   .wrap { display:grid; grid-template-columns:320px 1fr; gap:16px; padding:16px; max-width:1180px; margin:0 auto; }
   @media (max-width:760px) { .wrap { grid-template-columns:1fr; } }
   h2 { font-size:16px; font-weight:700; margin:0 0 10px; }
-  .card { background:var(--card); border-radius:16px; padding:16px; margin-bottom:12px; }
-  .item { display:block; width:100%; text-align:left; background:#fff; border:1px solid transparent; border-radius:12px;
+  .card { background:var(--card); border:1px solid #d6eadf; border-radius:16px; padding:16px; margin-bottom:12px; }
+  .item { display:block; width:100%; text-align:left; background:#fff; border:1px solid #d6eadf; border-radius:12px;
           padding:12px 14px; margin-bottom:8px; cursor:pointer; font:inherit; color:inherit; }
-  .item:hover { border-color:var(--line); }
+  .item:hover { border-color:#b9dccb; }
   .item.sel { border-color:var(--brand); box-shadow:0 0 0 1px var(--brand); }
   .item b { display:block; margin-bottom:2px; }
   .muted { color:var(--muted); font-size:13px; }
@@ -49,12 +49,14 @@
   a { color:var(--brand-ink); }
   .login { max-width:360px; margin:40px auto; }
   .login input { width:100%; padding:12px 14px; border:1px solid transparent; background:var(--fill); border-radius:12px; font:inherit; margin-top:4px; }
-  .hbtn { border:0; background:var(--fill); border-radius:20px; padding:6px 12px; font:inherit; font-size:13px; cursor:pointer; color:var(--muted); }
+  .hbtn { border:1px solid #00ab75; background:#fff; border-radius:20px; padding:6px 12px; font:inherit; font-size:13px; font-weight:500; cursor:pointer; color:#00875c; }
+  .hbtn:hover { background:#e6f7f0; }
   [hidden] { display:none !important; }
   .pill.late { background:var(--warn); color:#fff; }
-  .tabs { display:flex; gap:2px; background:var(--line); border-radius:20px; padding:3px; margin-bottom:10px; }
-  .tabs button { flex:1; border:0; background:none; border-radius:16px; padding:6px 4px; font-weight:500; font:inherit; font-size:13px; color:var(--muted); cursor:pointer; }
-  .tabs button[aria-selected="true"] { background:#3a3a3b; color:#fff; }
+  .tabs { display:flex; gap:6px; background:none; border-radius:20px; padding:0; margin-bottom:10px; }
+  .tabs button { flex:1; border:0; background:none; border-radius:16px; padding:6px 4px; font:inherit; font-size:13px; font-weight:500; color:#1d1d1e; cursor:pointer; }
+  .tabs button:hover { background:#e6f7f0; }
+  .tabs button[aria-selected="true"] { background:#00ab75; color:#fff; }
   .card.linked { border:2px solid var(--warn-bg); }
   .card.decision { border:2px solid var(--brand-bg, #e6f7f0); }
   header a { margin-left:14px; text-decoration:none; }
@@ -69,17 +71,17 @@
   .timeline li { display:grid; grid-template-columns:118px 1fr; gap:10px; }
   .timeline .who { color:var(--muted); font-size:13px; }
   /* Общее верхнее меню: четыре страницы проекта, текущая выделена. */
-  .topbar { display:flex; align-items:center; gap:16px; flex-wrap:wrap; padding:10px 20px; background:#fff; border-bottom:1px solid #e7e7eb; }
+  .topbar { display:flex; align-items:center; gap:16px; flex-wrap:wrap; padding:10px 20px; background:#fff; border-bottom:1px solid #d6eadf; }
   .topbar .brand { font-weight:700; font-size:17px; color:#1d1d1e; text-decoration:none; white-space:nowrap; }
-  .pages { display:flex; gap:2px; background:#e7e7eb; border-radius:20px; padding:3px; overflow-x:auto; scrollbar-width:none; }
+  .pages { display:flex; gap:6px; background:none; border-radius:20px; padding:0; overflow-x:auto; scrollbar-width:none; }
   .pages::-webkit-scrollbar { display:none; }
-  .pages a { padding:7px 14px; border-radius:17px; font-size:14px; font-weight:500; color:#5c5d62; text-decoration:none; white-space:nowrap; margin:0; }
-  .pages a:hover { color:#1d1d1e; }
-  .pages a[aria-current="page"] { background:#3a3a3b; color:#fff; }
+  .pages a { padding:7px 14px; border-radius:17px; border:0; background:none; font-size:14px; font-weight:500; color:#1d1d1e; text-decoration:none; white-space:nowrap; margin:0; }
+  .pages a:hover { background:#e6f7f0; }
+  .pages a[aria-current="page"] { background:#00ab75; color:#fff; }
   .topbar .tools { margin-left:auto; display:flex; gap:8px; }
   @media (max-width:700px) {
     .topbar { padding:10px 12px; gap:8px 10px; }
-    .pages { order:3; width:100%; display:grid; grid-template-columns:1fr 1fr; border-radius:14px; }
+    .pages { order:3; width:100%; display:grid; grid-template-columns:1fr 1fr; }
     .pages a { text-align:center; padding:7px 8px; border-radius:11px; }
   }
 </style>

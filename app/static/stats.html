@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Чистый счёт: эффективность</title>
 <style>
-  :root { --bg:#f5f5fa; --card:#fff; --ink:#1d1d1e; --ink2:#3a3a3b; --muted:#7f8085; --line:#e7e7eb; --grid:#efeff3;
+  :root { --bg:#fff; --card:#fff; --ink:#1d1d1e; --ink2:#2f4a3f; --muted:#587366; --line:#d6eadf; --grid:#e3f0ea;
           --brand:#00ab75; --warn:#c62828; --warn-bg:#fdeeee; --amber-bg:#fff5df; --amber:#6b4a00; }
   * { box-sizing:border-box; }
   body { margin:0; background:var(--bg); color:var(--ink); font:15px/1.5 "Roboto Flex", Roboto, "Segoe UI", system-ui, -apple-system, sans-serif; }
@@ -19,7 +19,7 @@
   .lead { color:var(--ink2); margin:0 0 14px; max-width:780px; }
   .muted { color:var(--muted); font-size:13px; }
   .note { background:var(--amber-bg); color:var(--amber); border-radius:12px; padding:10px 14px; font-size:14px; margin-bottom:14px; }
-  .group { background:var(--card); border-radius:16px; padding:16px; margin-bottom:14px; }
+  .group { background:var(--card); border:1px solid #d6eadf; border-radius:16px; padding:16px; margin-bottom:14px; }
   .tiles { display:grid; grid-template-columns:repeat(auto-fit, minmax(200px, 1fr)); gap:16px; }
   .tile .label { color:var(--muted); font-size:13px; }
   .tile .value { font-size:28px; font-weight:650; font-variant-numeric:tabular-nums; line-height:1.2; margin:2px 0; }
@@ -38,17 +38,17 @@
   .scroll { overflow-x:auto; }
   a { color:var(--brand); }
   /* Общее верхнее меню: четыре страницы проекта, текущая выделена. */
-  .topbar { display:flex; justify-content:flex-start; align-items:center; gap:16px; flex-wrap:wrap; padding:10px 20px; background:#fff; border-bottom:1px solid #e7e7eb; }
+  .topbar { display:flex; justify-content:flex-start; align-items:center; gap:16px; flex-wrap:wrap; padding:10px 20px; background:#fff; border-bottom:1px solid #d6eadf; }
   .topbar .brand { font-weight:700; font-size:17px; color:#1d1d1e; text-decoration:none; white-space:nowrap; }
-  .pages { display:flex; gap:2px; background:#e7e7eb; border-radius:20px; padding:3px; overflow-x:auto; scrollbar-width:none; }
+  .pages { display:flex; gap:6px; background:none; border-radius:20px; padding:0; overflow-x:auto; scrollbar-width:none; }
   .pages::-webkit-scrollbar { display:none; }
-  .pages a { padding:7px 14px; border-radius:17px; font-size:14px; font-weight:500; color:#5c5d62; text-decoration:none; white-space:nowrap; margin:0; }
-  .pages a:hover { color:#1d1d1e; }
-  .pages a[aria-current="page"] { background:#3a3a3b; color:#fff; }
+  .pages a { padding:7px 14px; border-radius:17px; border:0; background:none; font-size:14px; font-weight:500; color:#1d1d1e; text-decoration:none; white-space:nowrap; margin:0; }
+  .pages a:hover { background:#e6f7f0; }
+  .pages a[aria-current="page"] { background:#00ab75; color:#fff; }
   .topbar .tools { margin-left:auto; display:flex; gap:8px; }
   @media (max-width:700px) {
     .topbar { padding:10px 12px; gap:8px 10px; }
-    .pages { order:3; width:100%; display:grid; grid-template-columns:1fr 1fr; border-radius:14px; }
+    .pages { order:3; width:100%; display:grid; grid-template-columns:1fr 1fr; }
     .pages a { text-align:center; padding:7px 8px; border-radius:11px; }
   }
 </style>

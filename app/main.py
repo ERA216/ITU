@@ -1151,13 +1151,13 @@ def _clearance_view(case_id: int) -> dict | None:
 def _page(title: str, body: str) -> RawResponse:
     html_doc = f"""<!DOCTYPE html><html lang="{i18n.lang.get()}"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1"><title>{escape(title)}</title>
-<style>body{{margin:0;background:#f5f5fa;color:#1d1d1e;font:16px/1.5 "Roboto Flex",Roboto,"Segoe UI",system-ui,-apple-system,sans-serif}}
-main{{max-width:720px;margin:24px auto;background:#fff;border-radius:16px;padding:28px 24px}}
-h1{{font-size:22px;margin:0 0 4px;color:#1d1d1e}} .muted{{color:#7f8085;font-size:14px}}
+<style>body{{margin:0;background:#fff;color:#1d1d1e;font:16px/1.5 "Roboto Flex",Roboto,"Segoe UI",system-ui,-apple-system,sans-serif}}
+main{{max-width:720px;margin:24px auto;background:#fff;border:1px solid #d6eadf;border-radius:16px;padding:28px 24px}}
+h1{{font-size:22px;margin:0 0 4px;color:#1d1d1e}} .muted{{color:#587366;font-size:14px}}
 .ok{{background:#e6f7f0;color:#00875c;border-radius:12px;padding:12px 14px;font-weight:600}}
 .bad{{background:#fdeeee;color:#c62828;border-radius:12px;padding:12px 14px;font-weight:600}}
-dl{{display:grid;grid-template-columns:max-content 1fr;gap:6px 16px;margin:16px 0}} dt{{color:#7f8085}} dd{{margin:0}}
-.demo{{border:1px dashed #d8d8dd;color:#7f8085;border-radius:10px;padding:8px 12px;font-size:13px;margin-top:20px}}
+dl{{display:grid;grid-template-columns:max-content 1fr;gap:6px 16px;margin:16px 0}} dt{{color:#587366}} dd{{margin:0}}
+.demo{{border:1px dashed #b9dccb;color:#587366;border-radius:10px;padding:8px 12px;font-size:13px;margin-top:20px}}
 button{{font:inherit;font-weight:500;border:0;border-radius:12px;padding:12px 16px;background:#00ab75;color:#fff;cursor:pointer}}
 @media print{{body{{background:#fff}} main{{margin:0}} button{{display:none}}}}</style></head>
 <body><main>{body}</main></body></html>"""
